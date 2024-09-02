@@ -1,0 +1,21 @@
+﻿# CMakeList.txt : CMake project for ym-sprite-editor, include source and define
+# project specific logic here.
+#
+cmake_minimum_required (VERSION 3.8)
+
+project ("ym-sprite-editor")
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(SDL2 CONFIG REQUIRED)
+find_package(imgui CONFIG REQUIRED)
+
+add_executable(ym-sprite-editor "ym-sprite-editor.cpp" "ym-sprite-editor.h")
+
+target_link_libraries(ym-sprite-editor
+        PRIVATE
+        $<TARGET_NAME_IF_EXISTS:SDL2::SDL2main>
+        $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>)
+
+target_link_libraries(ym-sprite-editor PRIVATE imgui::imgui)

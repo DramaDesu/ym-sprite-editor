@@ -1,0 +1,15 @@
+{
+  "dependencies": [
+    "sdl2",
+    "sdl2-image",
+    "sdl2-ttf",
+    {
+      "name": "imgui",
+      "features": [
+        "sdl2-binding",
+        "sdl2-renderer-binding"
+      ]
+    }
+  ],
+  "builtin-baseline": "f7423ee180c4b7f40d43402c2feb3859161ef625"
+}
