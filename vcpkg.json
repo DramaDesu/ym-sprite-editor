@@ -9,7 +9,8 @@
         "sdl2-binding",
         "sdl2-renderer-binding"
       ]
-    }
+    },
+    "stb"
   ],
   "builtin-baseline": "f7423ee180c4b7f40d43402c2feb3859161ef625"
 }
