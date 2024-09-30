@@ -1,4 +1,4 @@
-﻿#include "ym-sprite-editor.h"
+﻿#include "lib/include/ym-sprite-editor.h"
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_sdlrenderer2.h"
@@ -12,6 +12,7 @@
 #include "stb_image.h"
 
 #include <cmath>
+#include <iostream>
 
 using namespace std;
 
@@ -401,7 +402,9 @@ namespace ym::ui {
 				}
 			}
 
-			mini_map_fade.SetTarget(ImGui::IsMouseHoveringRect(in_viewport_top_left, in_viewport_bottom_right) ? 1.0f : 0.0f);
+			auto&& should_show_mini_map = ImGui::IsMouseHoveringRect(in_viewport_top_left, in_viewport_bottom_right);
+
+			mini_map_fade.SetTarget(should_show_mini_map ? 1.0f : 0.0f);
 
 			zoom.Update(io.DeltaTime);
 			mini_map_fade.Update(io.DeltaTime);
@@ -600,6 +603,21 @@ namespace ym::ui {
 
 	void draw_sprite_editor_window(FSpriteEditorViewModel& sprite_editor_view_model)
 	{
+		if (auto sprite_editor = ym::sprite_editor::create_sprite_editor())
+		{
+			sprite_editor->create_sprite({0, 0});
+			sprite_editor->create_sprite({8, 8});
+			sprite_editor->create_sprite({16, 16});
+
+			// if (const auto sprites = sprite_editor->sprites())
+			{
+				for (auto sprite : sprite_editor->sprites())
+				{
+					std::cout << sprite->position << "\n";
+				}
+			}
+		}
+
 		if (ImGui::Begin("Sprite Editor"))
 		{
 			ImGui::Button("Header");
