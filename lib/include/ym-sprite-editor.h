@@ -23,7 +23,7 @@ namespace ym::sprite_editor
     template<typename T, std::uint8_t N>
     ImVec2 ToImVec2(const ym::sprite_editor::math::vec<T, N>& in_vector) requires (N >= 2 && std::is_convertible_v<T, float>)
     {
-        return { in_vector.x, in_vector.y };
+        return { static_cast<float>(in_vector.x), static_cast<float>(in_vector.y) };
     }
 
     template <typename T>
@@ -54,7 +54,7 @@ namespace ym::sprite_editor
         virtual void add_sprite(const std::shared_ptr<BaseSprite>& in_sprite) = 0;
 
         virtual void update(const vec2& in_viewport_min, const vec2& in_viewport_max) = 0;
-		virtual void draw(void* im_context) const = 0;
+		virtual void draw() const = 0;
 
 		struct sprite_range
         {

@@ -103,16 +103,21 @@ namespace
 
 	struct FCamera
 	{
-		FBounds VisibleWorldBounds() const {
+		FBounds VisibleWorldBounds() const
+		{
 			const auto half_viewport_size = ym::sprite_editor::vec2(viewport_bounds.Width(), viewport_bounds.Height()) / (2.0f * zoom);
 			return { position - half_viewport_size, position + half_viewport_size };
 		}
 
-		ym::sprite_editor::vec2 WorldToScreen(const ym::sprite_editor::vec2& in_world_pos) const {
-			ym::sprite_editor::vec2 screen_pos;
-			screen_pos.x = (in_world_pos.x - position.x) * zoom + (viewport_bounds.min.x + (viewport_bounds.max.x - viewport_bounds.min.x) / 2);
-			screen_pos.y = (in_world_pos.y - position.y) * zoom + (viewport_bounds.min.y + (viewport_bounds.max.y - viewport_bounds.min.y) / 2);
-			return screen_pos;
+		ym::sprite_editor::vec2 WorldToScreen(const ym::sprite_editor::vec2& in_world_pos) const
+		{
+			auto&& screen_position_normalized = (in_world_pos - position) * zoom / extends;
+			return viewport_bounds.Center() + (viewport_bounds.Size() / 2.0f) * screen_position_normalized;
+		}
+
+		ImVec2 WorldToScreenImVec(const ym::sprite_editor::vec2& in_world_pos) const
+		{
+			return ym::sprite_editor::ToImVec2(WorldToScreen(in_world_pos));
 		}
 
 		ym::sprite_editor::vec2 ScreenToWorld(const ym::sprite_editor::vec2& in_screen_pos) const {
@@ -123,44 +128,49 @@ namespace
 		}
 
 		ym::sprite_editor::vec2 WorldToMinimap(const ym::sprite_editor::vec2& in_world_pos, const ym::sprite_editor::vec2& in_minimap_pos, const ym::sprite_editor::vec2& in_minimap_size) const {
-			const auto minimap_scale_x = in_minimap_size.x / world_bounds.Width();
-			const auto minimap_scale_y = in_minimap_size.y / world_bounds.Height();
-			return {
-				in_minimap_pos.x + (in_world_pos.x - world_bounds.min.x) * minimap_scale_x,
-				in_minimap_pos.y + (in_world_pos.y - world_bounds.min.y) * minimap_scale_y
-			};
+			//const auto minimap_scale_x = in_minimap_size.x / world_bounds.Width();
+			//const auto minimap_scale_y = in_minimap_size.y / world_bounds.Height();
+			//return {
+			//	in_minimap_pos.x + (in_world_pos.x - world_bounds.min.x) * minimap_scale_x,
+			//	in_minimap_pos.y + (in_world_pos.y - world_bounds.min.y) * minimap_scale_y
+			//};
+
+			return {};
 		}
 
 		ym::sprite_editor::vec2 MinimapToWorld(const ym::sprite_editor::vec2& minimap_pos, const ym::sprite_editor::vec2& minimap_size, const ym::sprite_editor::vec2& click_pos) const {
-			const auto scale_x = minimap_size.x / world_bounds.Width();
-			const auto scale_y = minimap_size.y / world_bounds.Height();
-			return {
-				(click_pos.x - minimap_pos.x) / scale_x + world_bounds.min.x,
-				(click_pos.y - minimap_pos.y) / scale_y + world_bounds.min.y
-			};
+			// const auto scale_x = minimap_size.x / world_bounds.Width();
+			// const auto scale_y = minimap_size.y / world_bounds.Height();
+			// return {
+			// 	(click_pos.x - minimap_pos.x) / scale_x + world_bounds.min.x,
+			// 	(click_pos.y - minimap_pos.y) / scale_y + world_bounds.min.y
+			// };
+
+			return {};
 		}
 
 		float ClampZoom(float in_zoom, float in_min, float in_max) const {
 			const auto min = std::min(viewport_bounds.Width() / in_min, viewport_bounds.Height() / in_min);
 			const auto max = std::min(viewport_bounds.Width() / in_max, viewport_bounds.Height() / in_max);
 
-			return std::clamp(in_zoom, std::min(min, max), std::max(min, max));
+			// return std::clamp(in_zoom, std::min(min, max), std::max(min, max));
+			return std::clamp(in_zoom, in_min, in_max);
 		}
 
 		ym::sprite_editor::vec2 ClampLocation(const ym::sprite_editor::vec2& in_position) const {
-			const auto viewport_width = viewport_bounds.Width() / zoom;
-			const auto viewport_height = viewport_bounds.Height() / zoom;
+			auto&& zoomed_extends = extends * zoom;
 			ym::sprite_editor::vec2 out_position;
 			{
-				out_position.x = std::clamp<float>(in_position.x, world_bounds.min.x + viewport_width / 2.0f, world_bounds.max.x - viewport_width / 2.0f);
-				out_position.y = std::clamp<float>(in_position.y, world_bounds.min.y + viewport_height / 2.0f, world_bounds.max.y - viewport_height / 2.0f);
+				out_position.x = std::clamp<float>(in_position.x, (-zoomed_extends.x + extends.x) / 2.0f, (zoomed_extends.x - extends.x) / 2.0f);
+				out_position.y = std::clamp<float>(in_position.y, (-zoomed_extends.y + extends.y) / 2.0f, (zoomed_extends.y - extends.y) / 2.0f);
 			}
 			return out_position;
 		}
 
 		ym::sprite_editor::vec2 position{};
+		ym::sprite_editor::vec2 extends{};
 		float zoom{ 1.0f };
-		FBounds world_bounds;
+
 		FBounds viewport_bounds;
 	};
 
@@ -272,8 +282,8 @@ namespace
 		struct drawable_t
 		{
 			virtual ~drawable_t() = default;
-			virtual void Source(void* in_source) = 0;
-			virtual void Draw(void* in_context) const = 0;
+			virtual void target(void* in_target) = 0;
+			virtual void draw() const = 0;
 		};
 
 		friend struct sprite_editor_imgui_impl;
@@ -283,9 +293,7 @@ namespace
 			: zoom(1.0f, tile_size * min_tiles_space_size * 1.5f, EInterpolationType::QuadraticEaseIn)
 			, drawable_(std::move(in_drawable))
 		{
-			drawable_->Source(this);
-
-			camera.world_bounds = MaxGridSize();
+			drawable_->target(this);
 		}
 
 		std::shared_ptr<ym::sprite_editor::BaseSprite> create_sprite(const ym::sprite_editor::position_t& in_position) override
@@ -305,7 +313,7 @@ namespace
 
 		ym::sprite_editor::vec2 world_bounds() const override
 		{
-			return camera.world_bounds.Size();
+			return camera.extends;
 		}
 
 		ym::sprite_editor::vec2 world_to_screen(const ym::sprite_editor::vec2& in_position) const override
@@ -319,7 +327,7 @@ namespace
 		}
 
 		float MaxGridSize() const {
-			const auto max_extend = std::accumulate(sprites_.cbegin(), sprites_.cend(), 0, [](int value, const sprite_t& in_sprite)
+			const auto max_extend = std::accumulate(sprites_.cbegin(), sprites_.cend(), 0.0f, [](int value, const sprite_t& in_sprite)
 			{
 				const auto& half_size = in_sprite->get_size() / 2;
 				const auto max_x = std::max<float>(std::abs<float>(in_sprite->position.x + half_size.x), std::abs<float>(in_sprite->position.x - half_size.x));
@@ -328,11 +336,12 @@ namespace
 				return std::max<float>(value, std::max<float>(max_x, max_y));
 			});
 
-			return std::max(static_cast<float>(tile_size) * max_tiles_space_size, max_extend * 2.0f);
+			return std::max(static_cast<float>(tile_size) * max_tiles_space_size, max_extend);
 		}
 
 		void update(const ym::sprite_editor::vec2& in_viewport_min, const ym::sprite_editor::vec2& in_viewport_max) override
 		{
+			camera.extends = { MaxGridSize(), MaxGridSize() };
 			camera.viewport_bounds = { in_viewport_min, in_viewport_max };
 
 			auto&& io = ImGui::GetIO();
@@ -359,13 +368,13 @@ namespace
 			zoom.Update(io.DeltaTime);
 			mini_map_fade.Update(io.DeltaTime);
 
-			camera.zoom = camera.ClampZoom(zoom.GetAlpha(), MinGridSize(), MaxGridSize());
+			camera.zoom = camera.ClampZoom(zoom.GetAlpha(), 1.0f, MaxGridSize());
 			camera.position = camera.ClampLocation(camera.position);
 		}
 
-		void draw(void* in_context) const override
+		void draw() const override
 		{
-			drawable_->Draw(in_context);
+			drawable_->draw(); // TODO: Seems like shitty way
 		}
 
 		sprite_range sprites() const override
@@ -446,14 +455,18 @@ namespace
 		std::unique_ptr<drawable_t> drawable_;
 	};
 
+
 	struct sprite_editor_imgui_impl : SegaSpriteEditor::drawable_t
 	{
-		struct FCursorScreenGuard {
-			FCursorScreenGuard(const ym::sprite_editor::vec2& in_pos) {
+		struct FCursorScreenGuard
+		{
+			FCursorScreenGuard(const ym::sprite_editor::vec2& in_pos)
+			{
 				ImGui::SetCursorScreenPos(ym::sprite_editor::ToImVec2(in_pos));
 			}
 
-			~FCursorScreenGuard() {
+			~FCursorScreenGuard()
+			{
 				ImGui::SetCursorScreenPos(cached_cursor);
 			}
 		private:
@@ -489,8 +502,8 @@ namespace
 					ym::sprite_editor::vec2 current_mouse_pos = {ImGui::GetMousePos().x, ImGui::GetMousePos().y};
 					ym::sprite_editor::vec2 delta = current_mouse_pos - minimap_state.last_mouse_pos;
 
-					ym::sprite_editor::vec2 world_delta = delta / ym::sprite_editor::vec2(minimap_size.x / camera.world_bounds.Width(), minimap_size.y / camera.world_bounds.Height());
-					camera.position += world_delta;
+					// ym::sprite_editor::vec2 world_delta = delta / ym::sprite_editor::vec2(minimap_size.x / camera.world_bounds.Width(), minimap_size.y / camera.world_bounds.Height());
+					// camera.position += world_delta;
 					minimap_state.last_mouse_pos = current_mouse_pos;
 				}
 
@@ -500,23 +513,23 @@ namespace
 			}
 		}
 
-		void Source(void* in_source) override
+		void target(void* in_source) override
 		{
 			editor = static_cast<SegaSpriteEditor*>(in_source);
 		}
 
-		void Draw(void* in_context) const override
+		void draw() const override
 		{
 			if (editor != nullptr) [[likely]]
 			{
-				if (auto* draw_list = static_cast<ImDrawList*>(in_context)) [[likely]]
+				if (auto* draw_list = ImGui::GetWindowDrawList()) [[likely]]
 				{
 					auto&& camera = editor->camera;
 
-					draw_list->AddLine(ym::sprite_editor::ToImVec2(camera.WorldToScreen(camera.world_bounds.Left())),
-					                   ym::sprite_editor::ToImVec2(camera.WorldToScreen(camera.world_bounds.Right())), IM_COL32(255, 255, 255, 255));
-					draw_list->AddLine(ym::sprite_editor::ToImVec2(camera.WorldToScreen(camera.world_bounds.Top())),
-					                   ym::sprite_editor::ToImVec2(camera.WorldToScreen(camera.world_bounds.Bottom())), IM_COL32(255, 255, 255, 255));
+					draw_list->AddLine(camera.WorldToScreenImVec({-camera.extends.x, 0.0f}),
+					                   camera.WorldToScreenImVec({camera.extends.x, 0.0f }), IM_COL32(255, 255, 255, 255));
+					draw_list->AddLine(camera.WorldToScreenImVec({ 0.0f, -camera.extends.y }),
+										camera.WorldToScreenImVec({ 0.0f, camera.extends.y }), IM_COL32(255, 255, 255, 255));
 
 					for (auto&& sprite : editor->sprites())
 					{
@@ -531,7 +544,7 @@ namespace
 					if (auto&& mini_map_size = ym::sprite_editor::vec2{ viewport_bottom_right.x, viewport_bottom_right.x} * 0.1f; mini_map_size.x > 0.0f) {
 						auto&& mini_map_pos = viewport_bottom_right - mini_map_size - mini_map_size * 0.1f;
 
-						draw_minimap(draw_list, camera, editor->minimap_state, mini_map_pos, mini_map_size, editor->mini_map_fade.GetAlpha());
+						// draw_minimap(draw_list, camera, editor->minimap_state, mini_map_pos, mini_map_size, editor->mini_map_fade.GetAlpha());
 					}
 				}
 			}
@@ -605,7 +618,7 @@ namespace ym::sprite_editor
 			{
 				ImGui::PushClipRect(ToImVec2(viewport_top_left), ToImVec2(viewport_bottom_right), true);
 
-				in_sprite_editor->draw(draw_list);
+				in_sprite_editor->draw();
 
 				draw_list->AddQuad(position, { position.x + width, position.y }, { position.x + width, position.y + width }, { position.x, position.y + width }, IM_COL32(128, 128, 128, 255), 3.0f);
 

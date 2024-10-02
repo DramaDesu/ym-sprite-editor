@@ -92,7 +92,7 @@ namespace ym::ui {
 
 		sprite_editor::size_t get_size() const override
 		{
-			return {};
+			return {texture.get_width(), texture.get_height()};
 		}
 
 		FTexture texture;
@@ -195,26 +195,28 @@ struct FSpriteEditorApplication
 		}
 	}
 
-	void register_sprite_renderings(const shared_ptr<ym::sprite_editor::ISpriteEditor>& editor)
+	void register_sprite_renderings(const shared_ptr<ym::sprite_editor::ISpriteEditor>& editor) const
 	{
 		editor->register_sprite_renderer<ym::ui::TextureSprite>([editor](const auto& in_sprite)
 		{
 			auto&& texture_sprite = std::static_pointer_cast<ym::ui::TextureSprite>(in_sprite);
 			if (auto&& texture = texture_sprite->texture.get_texture())
 			{
-				auto&& texture_size = ym::ui::fit_texture(texture_sprite->texture, editor->world_bounds());
-				auto&& size = editor->world_to_screen(texture_size) / 2.0f;
+				auto&& screen_location = editor->world_to_screen({ in_sprite->position.x, in_sprite->position.y });
+				auto&& screen_size = 
+					editor->world_to_screen(ym::sprite_editor::vec2{ in_sprite->position.x, in_sprite->position.y } +
+						ym::sprite_editor::vec2{in_sprite->get_size().x, in_sprite->get_size().y}) - screen_location;
 
 				ym::ui::ImageRotated(texture,
-					ym::sprite_editor::ToImVec2(editor->world_to_screen({in_sprite->position.x, in_sprite->position.y})), 
-						ym::sprite_editor::ToImVec2(size), texture_sprite->rotation);
+					ym::sprite_editor::ToImVec2(screen_location),
+						ym::sprite_editor::ToImVec2(screen_size), texture_sprite->rotation);
 
 				texture_sprite->rotation += 0.35f * ImGui::GetIO().DeltaTime;
 			}
 		});
 	}
 
-	void add_texture_sprite(const shared_ptr<ym::sprite_editor::ISpriteEditor>& editor)
+	void add_texture_sprite(const shared_ptr<ym::sprite_editor::ISpriteEditor>& editor) const
 	{
 		int width, height, channels;
 		if (auto* data = stbi_load("data/hedgehog.png", &width, &height, &channels, 0))
