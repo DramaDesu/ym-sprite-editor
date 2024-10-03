@@ -92,11 +92,13 @@ namespace ym::ui {
 
 		sprite_editor::size_t get_size() const override
 		{
-			return {texture.get_width(), texture.get_height()};
+			return {texture.get_width() * scale, texture.get_height() * scale };
 		}
 
 		FTexture texture;
 		float rotation = 0.0f;
+		float rotation_speed = 0.0f;
+		float scale = 1.0f;
 	};
 
 	ym::sprite_editor::vec2 fit_texture(const ym::ui::FTexture& in_texture, const ym::sprite_editor::vec2& in_world_bounds) {
@@ -211,7 +213,7 @@ struct FSpriteEditorApplication
 					ym::sprite_editor::ToImVec2(screen_location),
 						ym::sprite_editor::ToImVec2(screen_size), texture_sprite->rotation);
 
-				texture_sprite->rotation += 0.35f * ImGui::GetIO().DeltaTime;
+				texture_sprite->rotation += texture_sprite->rotation_speed * ImGui::GetIO().DeltaTime;
 			}
 		});
 	}
@@ -221,10 +223,27 @@ struct FSpriteEditorApplication
 		int width, height, channels;
 		if (auto* data = stbi_load("data/hedgehog.png", &width, &height, &channels, 0))
 		{
-			if (auto&& sprite = std::make_shared<ym::ui::TextureSprite>())
+			srand(static_cast<unsigned>(time(nullptr)));
+			auto normalized_random = [] { return static_cast<float>(rand()) / static_cast<float>(RAND_MAX); };
+
+			for (int i = 0; i < 10; ++i)
 			{
-				sprite->texture.Load(data, channels, width, height, renderer_);
-				editor->add_sprite(sprite);
+				if (auto&& sprite = std::make_shared<ym::ui::TextureSprite>())
+				{
+					sprite->texture.Load(data, channels, width, height, renderer_);
+					sprite->scale = 1.0f - i * 0.05f;
+
+					auto&& location = ym::sprite_editor::vec2{ sprite->get_size().x, sprite->get_size().y } * normalized_random();
+					{
+						sprite->position.x = location.x;
+						sprite->position.y = location.y;
+					}
+
+					sprite->rotation = normalized_random() * 90.0f;
+					sprite->rotation_speed = 0.35f + normalized_random() * 0.55f;
+
+					editor->add_sprite(sprite);
+				}
 			}
 			stbi_image_free(data);
 		}

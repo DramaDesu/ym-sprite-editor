@@ -103,12 +103,6 @@ namespace
 
 	struct FCamera
 	{
-		FBounds VisibleWorldBounds() const
-		{
-			const auto half_viewport_size = ym::sprite_editor::vec2(viewport_bounds.Width(), viewport_bounds.Height()) / (2.0f * zoom);
-			return { position - half_viewport_size, position + half_viewport_size };
-		}
-
 		ym::sprite_editor::vec2 WorldToScreen(const ym::sprite_editor::vec2& in_world_pos) const
 		{
 			auto&& screen_position_normalized = (in_world_pos - position) * zoom / extends;
@@ -128,14 +122,12 @@ namespace
 		}
 
 		ym::sprite_editor::vec2 WorldToMinimap(const ym::sprite_editor::vec2& in_world_pos, const ym::sprite_editor::vec2& in_minimap_pos, const ym::sprite_editor::vec2& in_minimap_size) const {
-			//const auto minimap_scale_x = in_minimap_size.x / world_bounds.Width();
-			//const auto minimap_scale_y = in_minimap_size.y / world_bounds.Height();
-			//return {
-			//	in_minimap_pos.x + (in_world_pos.x - world_bounds.min.x) * minimap_scale_x,
-			//	in_minimap_pos.y + (in_world_pos.y - world_bounds.min.y) * minimap_scale_y
-			//};
-
-			return {};
+			const auto minimap_scale_x = in_minimap_size.x / extends.x;
+			const auto minimap_scale_y = in_minimap_size.y / extends.y;
+			return {
+				in_minimap_pos.x + (in_world_pos.x - position.x) * minimap_scale_x,
+				in_minimap_pos.y + (in_world_pos.y - position.y) * minimap_scale_y
+			};
 		}
 
 		ym::sprite_editor::vec2 MinimapToWorld(const ym::sprite_editor::vec2& minimap_pos, const ym::sprite_editor::vec2& minimap_size, const ym::sprite_editor::vec2& click_pos) const {
@@ -158,11 +150,11 @@ namespace
 		}
 
 		ym::sprite_editor::vec2 ClampLocation(const ym::sprite_editor::vec2& in_position) const {
-			auto&& zoomed_extends = extends * zoom;
+			auto&& zoomed_extends = extends * std::max(0.0f, zoom - 1.0f);
 			ym::sprite_editor::vec2 out_position;
 			{
-				out_position.x = std::clamp<float>(in_position.x, (-zoomed_extends.x + extends.x) / 2.0f, (zoomed_extends.x - extends.x) / 2.0f);
-				out_position.y = std::clamp<float>(in_position.y, (-zoomed_extends.y + extends.y) / 2.0f, (zoomed_extends.y - extends.y) / 2.0f);
+				out_position.x = std::clamp<float>(in_position.x, -zoomed_extends.x, zoomed_extends.x);
+				out_position.y = std::clamp<float>(in_position.y, -zoomed_extends.y, zoomed_extends.y);
 			}
 			return out_position;
 		}
@@ -253,6 +245,8 @@ namespace
 
 	struct FMinimapState
 	{
+		FBounds screen_bounds{};
+
 		bool is_dragging = false;
 		ym::sprite_editor::vec2 last_mouse_pos{};
 	};
@@ -473,27 +467,31 @@ namespace
 			ImVec2 cached_cursor = ImGui::GetCursorScreenPos();
 		};
 
-		void draw_minimap(ImDrawList* draw_list, FCamera& camera, FMinimapState& minimap_state, const ym::sprite_editor::vec2& minimap_pos, const ym::sprite_editor::vec2& minimap_size, float alpha) const
+		static void draw_minimap(ImDrawList* draw_list, FCamera& camera, FMinimapState& minimap_state, float alpha)
 		{
 			if (std::abs(alpha) > 0.1f) {
-				const FCursorScreenGuard cursor_guard(minimap_pos);
+				const FCursorScreenGuard cursor_guard(minimap_state.screen_bounds.min);
 
-				ImGui::InvisibleButton("mini_map", ym::sprite_editor::ToImVec2(minimap_size));
+				ImGui::InvisibleButton("mini_map", ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.Size()));
 
-				draw_list->AddRectFilled(ym::sprite_editor::ToImVec2(minimap_pos), ym::sprite_editor::ToImVec2(minimap_pos + minimap_size), IM_COL32(50, 50, 50, 255 * alpha));
+				auto&& left_top = ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.min);
+				auto&& right_bottom = ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.max);
+
+				draw_list->AddRectFilled(left_top, right_bottom, IM_COL32(50, 50, 50, 255 * alpha));
 				{
-					const auto visible_world = camera.VisibleWorldBounds();
+					auto mini_map_bounds = minimap_state.screen_bounds;
+					auto&& world_location = camera.position / camera.extends;
+					
+					mini_map_bounds.Scale(1.0f / camera.zoom);
+					mini_map_bounds.Offset(world_location * mini_map_bounds.Size() / 2.0f);
 
-					const auto camera_min_screen = camera.WorldToMinimap(visible_world.min, minimap_pos, minimap_size);
-					const auto camera_max_screen = camera.WorldToMinimap(visible_world.max, minimap_pos, minimap_size);
-
-					draw_list->AddRect(ym::sprite_editor::ToImVec2(camera_min_screen), ym::sprite_editor::ToImVec2(camera_max_screen), IM_COL32(0, 255, 0, 255 * alpha), 0.0f, 0, 2.0f);
+					draw_list->AddRect(ym::sprite_editor::ToImVec2(mini_map_bounds.min), ym::sprite_editor::ToImVec2(mini_map_bounds.max), IM_COL32(0, 255, 0, 255 * alpha), 0.0f, 0, 2.0f);
 				}
-				draw_list->AddRect(ym::sprite_editor::ToImVec2(minimap_pos), ym::sprite_editor::ToImVec2(minimap_pos + minimap_size), IM_COL32(255, 255, 255, 255 * alpha));
+				draw_list->AddRect(left_top, right_bottom, IM_COL32(255, 255, 255, 255 * alpha));
 
 				if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
 					ym::sprite_editor::vec2 mouse_pos = {ImGui::GetMousePos().x, ImGui::GetMousePos().y};
-					camera.position = camera.MinimapToWorld(minimap_pos, minimap_size, mouse_pos);
+					// camera.position = camera.MinimapToWorld(minimap_pos, minimap_size, mouse_pos);
 					minimap_state.is_dragging = true;
 					minimap_state.last_mouse_pos = mouse_pos;
 				}
@@ -502,8 +500,7 @@ namespace
 					ym::sprite_editor::vec2 current_mouse_pos = {ImGui::GetMousePos().x, ImGui::GetMousePos().y};
 					ym::sprite_editor::vec2 delta = current_mouse_pos - minimap_state.last_mouse_pos;
 
-					// ym::sprite_editor::vec2 world_delta = delta / ym::sprite_editor::vec2(minimap_size.x / camera.world_bounds.Width(), minimap_size.y / camera.world_bounds.Height());
-					// camera.position += world_delta;
+					// camera.position += delta;
 					minimap_state.last_mouse_pos = current_mouse_pos;
 				}
 
@@ -526,10 +523,10 @@ namespace
 				{
 					auto&& camera = editor->camera;
 
-					draw_list->AddLine(camera.WorldToScreenImVec({-camera.extends.x, 0.0f}),
-					                   camera.WorldToScreenImVec({camera.extends.x, 0.0f }), IM_COL32(255, 255, 255, 255));
-					draw_list->AddLine(camera.WorldToScreenImVec({ 0.0f, -camera.extends.y }),
-										camera.WorldToScreenImVec({ 0.0f, camera.extends.y }), IM_COL32(255, 255, 255, 255));
+					draw_list->AddLine(camera.WorldToScreenImVec(ym::sprite_editor::vec2{-camera.extends.x, 0.0f} * camera.zoom),
+					                   camera.WorldToScreenImVec(ym::sprite_editor::vec2{camera.extends.x, 0.0f } * camera.zoom), IM_COL32(255, 255, 255, 255));
+					draw_list->AddLine(camera.WorldToScreenImVec(ym::sprite_editor::vec2{ 0.0f, -camera.extends.y } * camera.zoom),
+										camera.WorldToScreenImVec(ym::sprite_editor::vec2{ 0.0f, camera.extends.y } * camera.zoom), IM_COL32(255, 255, 255, 255));
 
 					for (auto&& sprite : editor->sprites())
 					{
@@ -539,13 +536,14 @@ namespace
 						}
 					}
 
+					constexpr auto mini_map_coefficient_size = 0.1f; // 10% of viewport
 					auto&& viewport_bottom_right = camera.viewport_bounds.max;
+					auto&& mini_map_size = ym::sprite_editor::vec2{ viewport_bottom_right.x, viewport_bottom_right.x } * mini_map_coefficient_size;
+					auto&& mini_map_pos = viewport_bottom_right - mini_map_size - mini_map_size * mini_map_coefficient_size;
 
-					if (auto&& mini_map_size = ym::sprite_editor::vec2{ viewport_bottom_right.x, viewport_bottom_right.x} * 0.1f; mini_map_size.x > 0.0f) {
-						auto&& mini_map_pos = viewport_bottom_right - mini_map_size - mini_map_size * 0.1f;
+					editor->minimap_state.screen_bounds = { mini_map_pos, mini_map_pos + mini_map_size};
 
-						// draw_minimap(draw_list, camera, editor->minimap_state, mini_map_pos, mini_map_size, editor->mini_map_fade.GetAlpha());
-					}
+					draw_minimap(draw_list, camera, editor->minimap_state, editor->mini_map_fade.GetAlpha());
 				}
 			}
 		}
