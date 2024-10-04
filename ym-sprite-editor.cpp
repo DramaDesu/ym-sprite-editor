@@ -45,49 +45,63 @@ namespace ym::ui {
 		draw_list->AddImageQuad(tex_id, pos[0], pos[1], pos[2], pos[3], uvs[0], uvs[1], uvs[2], uvs[3], IM_COL32_WHITE);
 	}
 
+
 	class FTexture
 	{
 	public:
-		~FTexture()
-		{
-			Free();
-		}
-
 		void Load(std::uint8_t* in_data, size_t in_depth, int in_width, int in_height, SDL_Renderer* in_renderer)
 		{
-			Free();
+			constexpr auto red_mask = 0x000000ff;
+			constexpr auto green_mask = 0x0000ff00;
+			constexpr auto blue_mask = 0x00ff0000;
+			constexpr auto alpha_mask = 0xff000000;
 
-			if (SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(in_data, in_width, in_height, in_depth * 8, in_depth * in_width,
-			0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000)) {
-				texture_ = SDL_CreateTextureFromSurface(in_renderer, surface);
-				width_ = in_width;
-				height_ = in_height;
+			if (SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(in_data, in_width, in_height, in_depth * 8, in_depth * in_width, red_mask, green_mask, blue_mask, alpha_mask)) 
+			{
+				if (auto texture = SDL_CreateTextureFromSurface(in_renderer, surface))
+				{
+					data_ = std::make_shared<shared_data>(texture, in_width, in_height);
+				}
 				SDL_FreeSurface(surface);
 			}
 		}
 
 		operator bool() const {
-			return texture_ != nullptr;
+			return data_ && data_->texture_;
 		}
 
-		SDL_Texture* get_texture() const { return texture_; }
-		float get_width() const { return width_; }
-		float get_height() const { return height_; }
+		SDL_Texture* get_texture() const { return data_ ? data_->texture_ : nullptr; }
+		float get_width() const { return data_ ? data_->width_ : 0; }
+		float get_height() const { return data_ ? data_->height_ : 0; }
 
 	private:
-		void Free()
+		struct shared_data
 		{
-			SDL_DestroyTexture(texture_);
-			texture_ = nullptr;
-		}
+			shared_data() = default;
+			shared_data(SDL_Texture* in_texture, float in_width, float in_height) : texture_(in_texture), width_(in_width), height_(in_height) {}
 
-		SDL_Texture* texture_ = nullptr;
-		float width_ = 0.0f;
-		float height_ = 0.0f;
+			shared_data(const shared_data& other) = default;
+			shared_data& operator=(const shared_data& other) = default;
+
+			shared_data(shared_data&& other) noexcept = default;
+			shared_data& operator=(shared_data&& other) = default;
+
+			~shared_data()
+			{
+				SDL_DestroyTexture(texture_);
+			}
+
+			SDL_Texture* texture_ = nullptr;
+			float width_ = 0;
+			float height_ = 0;
+		};
+
+		std::shared_ptr<shared_data> data_ = nullptr;
 	};
 
-	struct TextureSprite : sprite_editor::BaseSprite
+	class TextureSprite : public sprite_editor::BaseSprite
 	{
+	public:
 		size_t type() const override { return sprite_editor::type_id<TextureSprite>(); }
 
 		sprite_editor::size_t get_size() const override
@@ -226,15 +240,20 @@ struct FSpriteEditorApplication
 			srand(static_cast<unsigned>(time(nullptr)));
 			auto normalized_random = [] { return static_cast<float>(rand()) / static_cast<float>(RAND_MAX); };
 
+			editor->register_sprite<ym::ui::TextureSprite>();
+
+			ym::ui::FTexture texture;
+			texture.Load(data, channels, width, height, renderer_);
+
 			for (int i = 0; i < 10; ++i)
 			{
-				if (auto&& sprite = std::make_shared<ym::ui::TextureSprite>())
+				if (auto&& sprite = editor->create_sprite<ym::ui::TextureSprite>())
 				{
-					sprite->texture.Load(data, channels, width, height, renderer_);
+					sprite->texture = texture;
 					sprite->scale = 1.0f - i * 0.05f;
 
-					auto&& location = ym::sprite_editor::vec2{ sprite->get_size().x, sprite->get_size().y } * normalized_random();
 					{
+						auto&& location = ym::sprite_editor::vec2{ sprite->get_size().x, sprite->get_size().y } * normalized_random();
 						sprite->position.x = location.x;
 						sprite->position.y = location.y;
 					}
@@ -260,10 +279,12 @@ struct FSpriteEditorApplication
 				{
 					setup_imgui_context(window_, renderer_);
 
-					if (sprite_editor = ym::sprite_editor::create_sprite_editor(); sprite_editor)
+					if (auto&& created_sprite_editor = ym::sprite_editor::create_sprite_editor())
 					{
-						register_sprite_renderings(sprite_editor);
-						add_texture_sprite(sprite_editor);
+						register_sprite_renderings(created_sprite_editor);
+						add_texture_sprite(created_sprite_editor);
+
+						sprite_editor = created_sprite_editor;
 					}
 					main_loop();
 				}

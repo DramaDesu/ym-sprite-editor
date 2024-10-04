@@ -4,6 +4,7 @@
 #include <complex>
 #include <corecrt_math_defines.h>
 #include <numeric>
+#include <optional>
 #include <string>
 
 #include "imgui.h"
@@ -254,11 +255,6 @@ namespace
 	class SegaSprite : public ym::sprite_editor::BaseSprite
 	{
 	public:
-		SegaSprite(const ym::sprite_editor::position_t& in_position)
-		{
-			position = in_position;
-		}
-
 		size_t type() const override { return ym::sprite_editor::type_id<SegaSprite>(); }
 
 		ym::sprite_editor::size_t get_size() const override
@@ -290,14 +286,9 @@ namespace
 			drawable_->target(this);
 		}
 
-		std::shared_ptr<ym::sprite_editor::BaseSprite> create_sprite(const ym::sprite_editor::position_t& in_position) override
+		std::shared_ptr<ym::sprite_editor::BaseSprite> create_sprite() override
 		{
-			if (auto sprite = creation_function_(in_position)) [[likely]]
-			{
-				sprites_.push_back(sprite);
-				return sprite;
-			}
-			return nullptr;
+			return default_sprite_type.has_value() ? on_create_sprite(default_sprite_type.value()) : nullptr;
 		}
 
 		void add_sprite(const std::shared_ptr<ym::sprite_editor::BaseSprite>& in_sprite) override
@@ -422,10 +413,15 @@ namespace
 			return sprites_.size();
 		}
 
-	protected:
-		void on_register_sprite(creation_function_t&& in_sprite_creation) override
+	private:
+		void on_set_default_sprite(size_t in_type) override
 		{
-			creation_function_ = std::move(in_sprite_creation);
+			default_sprite_type = in_type;
+		}
+
+		void on_register_sprite(size_t in_type, creation_function_t&& in_sprite_creation) override
+		{
+			creators[in_type] = std::move(in_sprite_creation);
 		}
 
 		void on_register_sprite_renderer(size_t in_type, renderer_function_t&& in_sprite_renderer) override
@@ -433,12 +429,28 @@ namespace
 			renderers[in_type] = std::move(in_sprite_renderer);
 		}
 
-	private:
+		std::shared_ptr<ym::sprite_editor::BaseSprite> on_create_sprite(::size_t in_type) override
+		{
+			if (auto it = creators.find(in_type); it != creators.cend())
+			{
+				auto&& creator = it->second;
+				if (auto sprite = creator()) [[likely]]
+				{
+					sprites_.push_back(sprite);
+					return sprite;
+				}
+			}
+
+			return nullptr;
+		}
+
 		using sprite_t = std::shared_ptr<ym::sprite_editor::BaseSprite>;
 
 		std::vector<sprite_t> sprites_;
-		creation_function_t creation_function_;
 
+		std::optional<size_t> default_sprite_type;
+
+		std::unordered_map<::size_t, creation_function_t> creators;
 		std::unordered_map<::size_t, renderer_function_t> renderers;
 
 		FColorInterpolation mini_map_fade{ {1.0f, 1.0f, 1.0f, 1.0f}, 0.0f, 10.5f, EInterpolationType::Sinusoidal };
