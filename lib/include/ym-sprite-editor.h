@@ -1,16 +1,12 @@
 #pragma once
 
 #include <cinttypes>
-#include <array>
-#include <cmath>
 #include <functional>
-#include <limits>
 #include <memory>
-#include <ostream>
-
-#include "imgui.h"
+#include "imgui.h" // TODO: Move to another header
 
 #include "ym-sprite-editor/math.h"
+#include "ym-sprite-editor/types.h"
 
 namespace ym::sprite_editor
 {
@@ -34,13 +30,6 @@ namespace ym::sprite_editor
     ImVec2 ToImVec2(const math::vec<T, N>& in_vector) requires (N >= 2 && std::is_convertible_v<T, float>)
     {
         return { static_cast<float>(in_vector.x), static_cast<float>(in_vector.y) };
-    }
-
-    template <typename T>
-    std::size_t type_id()
-	{
-        static const std::size_t id = reinterpret_cast<std::size_t>(&id);
-        return id;
     }
 
     class BaseSprite
@@ -120,13 +109,13 @@ namespace ym::sprite_editor
         template <typename T> requires IsBaseSprite<T>
         std::shared_ptr<T> create_sprite()
         {
-	        return std::static_pointer_cast<T>(on_create_sprite(type_id<T>()));
+	        return std::static_pointer_cast<T>(on_create_sprite(types::type_id<T>()));
         }
 
         template <typename T> requires IsBaseSprite<T>
         void default_sprite()
         {
-	        on_set_default_sprite(type_id<T>());
+	        on_set_default_sprite(types::type_id<T>());
         }
 
         template <typename T> requires IsBaseSprite<T>
@@ -136,7 +125,7 @@ namespace ym::sprite_editor
 		requires SpriteCreationCallback<T, F> && IsBaseSprite<T>
         void register_sprite(F&& in_create_callback = empty_create_callback<T>, const Allocator& in_allocator = Allocator())
 		{
-            on_register_sprite(type_id<T>(), [on_created = std::forward<F>(in_create_callback), in_allocator]() -> std::shared_ptr<BaseSprite>
+            on_register_sprite(types::type_id<T>(), [on_created = std::forward<F>(in_create_callback), in_allocator]() -> std::shared_ptr<BaseSprite>
             {
                 if (auto sprite = std::allocate_shared<T>(in_allocator)) [[likely]]
                 {
@@ -153,7 +142,7 @@ namespace ym::sprite_editor
         template <typename T> requires IsBaseSprite<T>
         void register_sprite_renderer(renderer_function_t&& in_sprite_renderer)
         {
-            on_register_sprite_renderer(type_id<T>(), std::move(in_sprite_renderer));
+            on_register_sprite_renderer(types::type_id<T>(), std::move(in_sprite_renderer));
         }
 
 	protected:

@@ -9,6 +9,8 @@
 #include "SDL.h"
 
 #define STB_IMAGE_IMPLEMENTATION 
+#include <iostream>
+
 #include "stb_image.h"
 
 using namespace std;
@@ -102,7 +104,7 @@ namespace ym::ui {
 	class TextureSprite : public sprite_editor::BaseSprite
 	{
 	public:
-		size_t type() const override { return sprite_editor::type_id<TextureSprite>(); }
+		size_t type() const override { return sprite_editor::types::type_id<TextureSprite>(); }
 
 		sprite_editor::size_t get_size() const override
 		{

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <ostream>
+#include <array>
+
 namespace ym::sprite_editor::math
 {
 	template<typename T, std::uint8_t N> requires (N > 0 && std::is_arithmetic_v<T>)

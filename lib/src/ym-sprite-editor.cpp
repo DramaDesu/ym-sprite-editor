@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <complex>
 #include <corecrt_math_defines.h>
+#include <iostream>
 #include <numeric>
 #include <optional>
 #include <string>
@@ -255,7 +256,7 @@ namespace
 	class SegaSprite : public ym::sprite_editor::BaseSprite
 	{
 	public:
-		size_t type() const override { return ym::sprite_editor::type_id<SegaSprite>(); }
+		size_t type() const override { return ym::sprite_editor::types::type_id<SegaSprite>(); }
 
 		ym::sprite_editor::size_t get_size() const override
 		{
