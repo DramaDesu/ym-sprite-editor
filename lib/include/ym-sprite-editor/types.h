@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <format>
 
 namespace ym::sprite_editor::types
 {
@@ -8,14 +9,18 @@ namespace ym::sprite_editor::types
 	std::string_view type_name()
 	{
 #ifdef _MSC_VER
-		std::string_view name = __FUNCSIG__;
+		constexpr std::string_view full_name = __FUNCSIG__;
+		std::string_view name = full_name;
 		constexpr std::string_view prefix = "type_name<";
 		constexpr std::string_view suffix = ">(void)";
 #elif defined(__clang__) || defined(__GNUC__)
-		std::string_view name = __PRETTY_FUNCTION__;
+		constexpr std::string_view full_name = __PRETTY_FUNCTION__;
+		std::string_view name = full_name;
 		constexpr std::string_view prefix = "std::string_view type_name() [T = ";
 		constexpr std::string_view suffix = "]";
 #endif
+
+		static_assert(!full_name.empty(), "Cannot dedicate type name! Please, check compile flags.");
 
 #ifdef _MSC_VER
 		if (auto prefix_size = name.find(prefix); prefix_size != std::string_view::npos)
