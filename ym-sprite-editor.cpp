@@ -106,7 +106,7 @@ namespace ym::ui {
 	public:
 		size_t type() const override { return sprite_editor::types::type_id<TextureSprite>(); }
 
-		sprite_editor::size_t get_size() const override
+		glm::vec2 get_size() const override
 		{
 			return {texture.get_width() * scale, texture.get_height() * scale };
 		}
@@ -220,14 +220,10 @@ struct FSpriteEditorApplication
 			auto&& texture_sprite = std::static_pointer_cast<ym::ui::TextureSprite>(in_sprite);
 			if (auto&& texture = texture_sprite->texture.get_texture())
 			{
-				auto&& screen_location = editor->world_to_screen({ in_sprite->position.x, in_sprite->position.y });
-				auto&& screen_size = 
-					editor->world_to_screen(ym::sprite_editor::vec2{ in_sprite->position.x, in_sprite->position.y } +
-						ym::sprite_editor::vec2{in_sprite->get_size().x, in_sprite->get_size().y}) - screen_location;
+				auto&& screen_location = editor->world_to_screen(in_sprite->position);
+				auto&& screen_size = editor->world_size_to_screen_size(in_sprite->get_size());
 
-				ym::ui::ImageRotated(texture,
-					ym::sprite_editor::ToImVec2(screen_location),
-						ym::sprite_editor::ToImVec2(screen_size), texture_sprite->rotation);
+				ym::ui::ImageRotated(texture, {screen_location.x, screen_location.y}, { screen_size.y, screen_size.y}, texture_sprite->rotation);
 
 				texture_sprite->rotation += texture_sprite->rotation_speed * ImGui::GetIO().DeltaTime;
 			}
@@ -252,18 +248,17 @@ struct FSpriteEditorApplication
 				if (auto&& sprite = editor->create_sprite<ym::ui::TextureSprite>())
 				{
 					sprite->texture = texture;
-					sprite->scale = 1.0f - i * 0.05f;
-
 					{
-						auto&& location = ym::sprite_editor::vec2{ sprite->get_size().x, sprite->get_size().y } * normalized_random();
+						auto&& sprite_size = sprite->get_size();
+
+						auto&& location = ym::sprite_editor::vec2{ sprite_size.x, 0 } * i * 1.0f;
 						sprite->position.x = location.x;
 						sprite->position.y = location.y;
 					}
 
+					// sprite->scale = 0.75f - i * 0.05f;
 					sprite->rotation = normalized_random() * 90.0f;
 					sprite->rotation_speed = 0.35f + normalized_random() * 0.55f;
-
-					editor->add_sprite(sprite);
 				}
 			}
 			stbi_image_free(data);

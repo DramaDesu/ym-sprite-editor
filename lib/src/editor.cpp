@@ -11,6 +11,10 @@
 #include "imgui.h"
 #include "SDL_render.h"
 
+#include <glm/vec2.hpp>
+#include <glm/mat4x4.hpp>
+#include <glm/ext/matrix_clip_space.hpp>
+
 namespace
 {
 	constexpr auto tile_size = 8;
@@ -23,14 +27,19 @@ namespace
 
 		FBounds(float in_size) : min{ -in_size / 2.0f, -in_size / 2.0f }, max{ in_size / 2.0f, in_size / 2.0f } {}
 
-		FBounds(const ym::sprite_editor::vec2& in_min, const ym::sprite_editor::vec2& in_max)
-			: min(in_min), max(in_max) {}
+		FBounds(const glm::vec2& in_min, const glm::vec2& in_max)
+		{
+			min.x = std::min(in_min.x, in_max.x);
+			min.y = std::min(in_min.y, in_max.y);
+			max.x = std::max(in_min.x, in_max.x);
+			max.y = std::max(in_min.y, in_max.y);
+		}
 
 		bool Intersects(const FBounds& other) const {
 			return !(other.min.x > max.x || other.max.x < min.x || other.min.y > max.y || other.max.y < min.y);
 		}
 
-		bool Contains(const ym::sprite_editor::vec2& point) const {
+		bool Contains(const glm::vec2& point) const {
 			return (point.x >= min.x && point.x <= max.x && point.y >= min.y && point.y <= max.y);
 		}
 
@@ -41,7 +50,7 @@ namespace
 			max.y = std::max(max.y, other.max.y);
 		}
 
-		void Offset(const ym::sprite_editor::vec2& delta) {
+		void Offset(const glm::vec2& delta) {
 			min += delta;
 			max += delta;
 		}
@@ -57,7 +66,7 @@ namespace
 			max = center + half_size;
 		}
 
-		ym::sprite_editor::vec2 Size() const {
+		glm::vec2 Size() const {
 			return { max.x - min.x, max.y - min.y};
 		}
 
@@ -69,23 +78,23 @@ namespace
 			return Size().y;
 		}
 
-		ym::sprite_editor::vec2 Left() const {
+		glm::vec2 Left() const {
 			return { min.x, 0.0f};
 		}
 
-		ym::sprite_editor::vec2 Right() const {
+		glm::vec2 Right() const {
 			return { max.x, 0.0f};
 		}
 
-		ym::sprite_editor::vec2 Top() const {
+		glm::vec2 Top() const {
 			return { 0.0f, min.y};
 		}
 
-		ym::sprite_editor::vec2 Bottom() const {
+		glm::vec2 Bottom() const {
 			return { 0.0f, max.y};
 		}
 
-		ym::sprite_editor::vec2 Center() const {
+		glm::vec2 Center() const {
 			return { (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f};
 		}
 
@@ -99,21 +108,47 @@ namespace
 			return std::clamp(in_y, min.y, max.y);
 		}
 
-		ym::sprite_editor::vec2 min{};
-		ym::sprite_editor::vec2 max{};
+		glm::vec2 min{};
+		glm::vec2 max{};
 	};
 
 	struct FCamera
 	{
-		ym::sprite_editor::vec2 WorldToScreen(const ym::sprite_editor::vec2& in_world_pos) const
+		auto Projection() const -> glm::mat4
 		{
-			auto&& screen_position_normalized = (in_world_pos - position) * zoom / extends;
-			return viewport_bounds.Center() + (viewport_bounds.Size() / 2.0f) * screen_position_normalized;
+			const auto half_size = viewport_bounds.Size() / (2.0f * zoom);
+			return glm::ortho(position.x - half_size.x, position.x + half_size.x, position.y - half_size.y, position.y + half_size.y, -1.0f, 1.0f);
 		}
 
-		ImVec2 WorldToScreenImVec(const ym::sprite_editor::vec2& in_world_pos) const
+		auto WorldSizeToScreenSize(const glm::vec2& in_world_size) const -> glm::vec2
 		{
-			return ym::sprite_editor::ToImVec2(WorldToScreen(in_world_pos));
+			return in_world_size * zoom;
+		}
+
+		auto WorldToScreen(const glm::vec2& in_world_location, const glm::vec2& in_world_size) const -> FBounds
+		{
+			const auto& screen_location = WorldToScreen(in_world_location);
+			const auto& screen_size = WorldSizeToScreenSize(in_world_size);
+			return {screen_location - screen_size / 2.0f, screen_location + screen_size / 2.0f};
+		}
+
+		auto WorldToScreen(const glm::vec2& in_world_location) const -> glm::vec2
+		{
+			const auto screen_normalized_location = Projection() * glm::vec4(in_world_location, 0.0f, 1.0f);
+
+			glm::vec2 normalized_location(screen_normalized_location.x / screen_normalized_location.w,
+				screen_normalized_location.y / screen_normalized_location.w);
+
+			glm::vec2 screen_location = (normalized_location + glm::vec2(1.0f)) * 0.5f * viewport_bounds.Size();
+
+			return viewport_bounds.min + screen_location;
+		}
+
+
+		ImVec2 WorldToScreenImVec(const glm::vec2& in_world_location) const
+		{
+			const auto& screen_location = WorldToScreen(in_world_location);
+			return{ screen_location.x, screen_location.y };
 		}
 
 		ym::sprite_editor::vec2 ScreenToWorld(const ym::sprite_editor::vec2& in_screen_pos) const {
@@ -124,8 +159,8 @@ namespace
 		}
 
 		ym::sprite_editor::vec2 WorldToMinimap(const ym::sprite_editor::vec2& in_world_pos, const ym::sprite_editor::vec2& in_minimap_pos, const ym::sprite_editor::vec2& in_minimap_size) const {
-			const auto minimap_scale_x = in_minimap_size.x / extends.x;
-			const auto minimap_scale_y = in_minimap_size.y / extends.y;
+			const auto minimap_scale_x = 1.0f; // in_minimap_size.x / extends.x;
+			const auto minimap_scale_y = 1.0f; // in_minimap_size.y / extends.y;
 			return {
 				in_minimap_pos.x + (in_world_pos.x - position.x) * minimap_scale_x,
 				in_minimap_pos.y + (in_world_pos.y - position.y) * minimap_scale_y
@@ -147,22 +182,25 @@ namespace
 			const auto min = std::min(viewport_bounds.Width() / in_min, viewport_bounds.Height() / in_min);
 			const auto max = std::min(viewport_bounds.Width() / in_max, viewport_bounds.Height() / in_max);
 
-			// return std::clamp(in_zoom, std::min(min, max), std::max(min, max));
-			return std::clamp(in_zoom, in_min, in_max);
+			const auto min_zoom = std::min(viewport_bounds.Width() / (world_extends.x * 2.0f), viewport_bounds.Height() / (world_extends.y * 2.0f));
+
+			return std::clamp(in_zoom, min_zoom, in_max);
+			// return std::clamp(in_zoom, in_min, in_max);
 		}
 
-		ym::sprite_editor::vec2 ClampLocation(const ym::sprite_editor::vec2& in_position) const {
-			auto&& zoomed_extends = extends * std::max(0.0f, zoom - 1.0f);
-			ym::sprite_editor::vec2 out_position;
-			{
-				out_position.x = std::clamp<float>(in_position.x, -zoomed_extends.x, zoomed_extends.x);
-				out_position.y = std::clamp<float>(in_position.y, -zoomed_extends.y, zoomed_extends.y);
-			}
+		auto ClampLocation(const glm::vec2& in_position) const -> glm::vec2 {
+			glm::vec2 out_position;
+
+			const glm::vec2 half_viewport_size = viewport_bounds.Size() / 2.0f / zoom;
+
+			out_position.x = std::clamp(in_position.x, -world_extends.x + half_viewport_size.x, world_extends.x - half_viewport_size.x);
+			out_position.y = std::clamp(in_position.y, -world_extends.y + half_viewport_size.y, world_extends.y - half_viewport_size.y);
+
 			return out_position;
 		}
 
-		ym::sprite_editor::vec2 position{};
-		ym::sprite_editor::vec2 extends{};
+		glm::vec2 position{};
+		glm::vec2 world_extends{};
 		float zoom{ 1.0f };
 
 		FBounds viewport_bounds;
@@ -258,13 +296,13 @@ namespace
 	public:
 		size_t type() const override { return ym::sprite_editor::types::type_id<SegaSprite>(); }
 
-		ym::sprite_editor::size_t get_size() const override
+		glm::vec2 get_size() const override
 		{
-			return size_ * tile_size;
+			return size_ * static_cast<float>(tile_size);
 		}
 
 	private:
-		ym::sprite_editor::size_t size_{4, 4};
+		glm::vec2 size_{4, 4};
 	};
 
 	class SegaSpriteEditor final : public ym::sprite_editor::ISpriteEditor
@@ -299,12 +337,17 @@ namespace
 
 		ym::sprite_editor::vec2 world_bounds() const override
 		{
-			return camera.extends;
+			return {};
 		}
 
-		ym::sprite_editor::vec2 world_to_screen(const ym::sprite_editor::vec2& in_position) const override
+		glm::vec2 world_to_screen(const glm::vec2& in_position) const override
 		{
 			return camera.WorldToScreen(in_position);
+		}
+
+		glm::vec2 world_size_to_screen_size(const glm::vec2& in_world_size) const override
+		{
+			return camera.WorldSizeToScreenSize(in_world_size);
 		}
 
 		static float MinGridSize()
@@ -313,9 +356,9 @@ namespace
 		}
 
 		float MaxGridSize() const {
-			const auto max_extend = std::accumulate(sprites_.cbegin(), sprites_.cend(), 0.0f, [](int value, const sprite_t& in_sprite)
+			const auto max_extend = std::accumulate(sprites_.cbegin(), sprites_.cend(), 0.0f, [](float value, const sprite_t& in_sprite)
 			{
-				const auto& half_size = in_sprite->get_size() / 2;
+				const auto& half_size = in_sprite->get_size() / 2.0f;
 				const auto max_x = std::max<float>(std::abs<float>(in_sprite->position.x + half_size.x), std::abs<float>(in_sprite->position.x - half_size.x));
 				const auto max_y = std::max<float>(std::abs<float>(in_sprite->position.y + half_size.y), std::abs<float>(in_sprite->position.y - half_size.y));
 
@@ -325,9 +368,9 @@ namespace
 			return std::max(static_cast<float>(tile_size) * max_tiles_space_size, max_extend);
 		}
 
-		void update(const ym::sprite_editor::vec2& in_viewport_min, const ym::sprite_editor::vec2& in_viewport_max) override
+		void update(const glm::vec2& in_viewport_min, const glm::vec2& in_viewport_max) override
 		{
-			camera.extends = { MaxGridSize(), MaxGridSize() };
+			camera.world_extends = { MaxGridSize(), MaxGridSize() };
 			camera.viewport_bounds = { in_viewport_min, in_viewport_max };
 
 			auto&& io = ImGui::GetIO();
@@ -343,11 +386,11 @@ namespace
 				if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 				{
 					auto&& mouse_delta = io.MouseDelta;
-					camera.position += { -mouse_delta.x / camera.zoom, -mouse_delta.y / camera.zoom };
+					camera.position += glm::vec2{ -mouse_delta.x / camera.zoom, -mouse_delta.y / camera.zoom };
 				}
 			}
 
-			auto&& should_show_mini_map = ImGui::IsMouseHoveringRect(ym::sprite_editor::ToImVec2(in_viewport_min), ym::sprite_editor::ToImVec2(in_viewport_max));
+			auto&& should_show_mini_map = ImGui::IsMouseHoveringRect({in_viewport_min.x, in_viewport_min.y}, {in_viewport_max.x, in_viewport_max.y});
 
 			mini_map_fade.SetTarget(should_show_mini_map ? 1.0f : 0.0f);
 
@@ -369,7 +412,7 @@ namespace
 			{
 				using it = std::vector<sprite_t>::const_iterator;
 
-				explicit vector_impl(it in_begin, it in_end) : begin_(in_begin), end_(in_end) {}
+				explicit vector_impl(const it& in_begin, const it& in_end) : begin_(in_begin), end_(in_end) {}
 
 				std::shared_ptr<ym::sprite_editor::BaseSprite> dereference() const override
 				{
@@ -397,11 +440,11 @@ namespace
 
 				std::unique_ptr<sprite_range::iterator::iterator_impl> begin() const override
 				{
-					return std::make_unique<vector_impl>(sprites_.begin(), sprites_.end());
+					return std::make_unique<vector_impl>(sprites_.cbegin(), sprites_.cbegin());
 				}
 				std::unique_ptr<sprite_range::iterator::iterator_impl> end() const override
 				{
-					return std::make_unique<vector_impl>(sprites_.end(), sprites_.end());
+					return std::make_unique<vector_impl>(sprites_.cend(), sprites_.cend());
 				}
 			private:
 				const std::vector<std::shared_ptr<ym::sprite_editor::BaseSprite>>& sprites_;
@@ -412,6 +455,19 @@ namespace
 		size_t sprites_num() const override
 		{
 			return sprites_.size();
+		}
+
+		std::weak_ptr<ym::sprite_editor::BaseSprite> selected_sprite() const override
+		{
+			return current_selected_sprite;
+		}
+
+		void select_sprite(const std::shared_ptr<ym::sprite_editor::BaseSprite>& in_sprite) override
+		{
+			if (auto&& found = std::ranges::find(std::as_const(sprites_), in_sprite); found != sprites_.cend())
+			{
+				current_selected_sprite = in_sprite;
+			}
 		}
 
 	private:
@@ -458,6 +514,7 @@ namespace
 		FInterpolation zoom;
 		FCamera camera;
 		FMinimapState minimap_state;
+		std::weak_ptr<ym::sprite_editor::BaseSprite> current_selected_sprite;
 
 		std::unique_ptr<drawable_t> drawable_;
 	};
@@ -467,9 +524,9 @@ namespace
 	{
 		struct FCursorScreenGuard
 		{
-			FCursorScreenGuard(const ym::sprite_editor::vec2& in_pos)
+			FCursorScreenGuard(const glm::vec2& in_pos)
 			{
-				ImGui::SetCursorScreenPos(ym::sprite_editor::ToImVec2(in_pos));
+				ImGui::SetCursorScreenPos({in_pos.x, in_pos.y});
 			}
 
 			~FCursorScreenGuard()
@@ -482,50 +539,96 @@ namespace
 
 		static void draw_minimap(ImDrawList* draw_list, FCamera& camera, FMinimapState& minimap_state, float alpha)
 		{
-			if (std::abs(alpha) > 0.1f) {
-				const FCursorScreenGuard cursor_guard(minimap_state.screen_bounds.min);
+			//if (std::abs(alpha) > 0.1f) {
+			//	const FCursorScreenGuard cursor_guard(minimap_state.screen_bounds.min);
 
-				ImGui::InvisibleButton("mini_map", ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.Size()));
+			//	ImGui::InvisibleButton("mini_map", ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.Size()));
 
-				auto&& left_top = ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.min);
-				auto&& right_bottom = ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.max);
+			//	auto&& left_top = ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.min);
+			//	auto&& right_bottom = ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.max);
 
-				draw_list->AddRectFilled(left_top, right_bottom, IM_COL32(50, 50, 50, 255 * alpha));
-				{
-					auto mini_map_bounds = minimap_state.screen_bounds;
-					auto&& world_location = camera.position / camera.extends;
-					
-					mini_map_bounds.Scale(1.0f / camera.zoom);
-					mini_map_bounds.Offset(world_location * mini_map_bounds.Size() / 2.0f);
+			//	draw_list->AddRectFilled(left_top, right_bottom, IM_COL32(50, 50, 50, 255 * alpha));
+			//	{
+			//		auto mini_map_bounds = minimap_state.screen_bounds;
+			//		auto&& world_location = camera.position / camera.extends;
+			//		
+			//		mini_map_bounds.Scale(1.0f / camera.zoom);
+			//		mini_map_bounds.Offset(world_location * mini_map_bounds.Size() / 2.0f);
 
-					draw_list->AddRect(ym::sprite_editor::ToImVec2(mini_map_bounds.min), ym::sprite_editor::ToImVec2(mini_map_bounds.max), IM_COL32(0, 255, 0, 255 * alpha), 0.0f, 0, 2.0f);
-				}
-				draw_list->AddRect(left_top, right_bottom, IM_COL32(255, 255, 255, 255 * alpha));
+			//		draw_list->AddRect(ym::sprite_editor::ToImVec2(mini_map_bounds.min), ym::sprite_editor::ToImVec2(mini_map_bounds.max), IM_COL32(0, 255, 0, 255 * alpha), 0.0f, 0, 2.0f);
+			//	}
+			//	draw_list->AddRect(left_top, right_bottom, IM_COL32(255, 255, 255, 255 * alpha));
 
-				if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-					ym::sprite_editor::vec2 mouse_pos = {ImGui::GetMousePos().x, ImGui::GetMousePos().y};
-					// camera.position = camera.MinimapToWorld(minimap_pos, minimap_size, mouse_pos);
-					minimap_state.is_dragging = true;
-					minimap_state.last_mouse_pos = mouse_pos;
-				}
+			//	if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+			//		ym::sprite_editor::vec2 mouse_pos = {ImGui::GetMousePos().x, ImGui::GetMousePos().y};
+			//		// camera.position = camera.MinimapToWorld(minimap_pos, minimap_size, mouse_pos);
+			//		minimap_state.is_dragging = true;
+			//		minimap_state.last_mouse_pos = mouse_pos;
+			//	}
 
-				if (minimap_state.is_dragging && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-					ym::sprite_editor::vec2 current_mouse_pos = {ImGui::GetMousePos().x, ImGui::GetMousePos().y};
-					ym::sprite_editor::vec2 delta = current_mouse_pos - minimap_state.last_mouse_pos;
+			//	if (minimap_state.is_dragging && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+			//		ym::sprite_editor::vec2 current_mouse_pos = {ImGui::GetMousePos().x, ImGui::GetMousePos().y};
+			//		ym::sprite_editor::vec2 delta = current_mouse_pos - minimap_state.last_mouse_pos;
 
-					// camera.position += delta;
-					minimap_state.last_mouse_pos = current_mouse_pos;
-				}
+			//		// camera.position += delta;
+			//		minimap_state.last_mouse_pos = current_mouse_pos;
+			//	}
 
-				if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-					minimap_state.is_dragging = false;
-				}
-			}
+			//	if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+			//		minimap_state.is_dragging = false;
+			//	}
+			//}
 		}
 
 		void target(void* in_source) override
 		{
 			editor = static_cast<SegaSpriteEditor*>(in_source);
+		}
+
+		void draw_selected_sprite(ImDrawList* in_draw_list, const std::shared_ptr<ym::sprite_editor::BaseSprite>& in_selected_sprite, const FCamera& in_camera) const
+		{
+			const auto sprite_bounds = in_camera.WorldToScreen(in_selected_sprite->position, in_selected_sprite->get_size());
+
+			const auto mouse_pos = ImGui::GetMousePos();
+			const auto is_hovered = sprite_bounds.Contains({ mouse_pos.x, mouse_pos.y });
+
+			static bool is_dragging = false; 
+
+			if (is_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) 
+			{
+				is_dragging = true;
+			}
+
+			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) 
+			{
+				is_dragging = false;
+			}
+
+			if (is_dragging) 
+			{
+				ImVec2 delta = ImGui::GetIO().MouseDelta; 
+				// in_selected_sprite->position.x += delta.x / in_camera.zoom;
+				// in_selected_sprite->position.y += delta.y / in_camera.zoom;
+			}
+
+
+			const ImU32 hatch_color = is_hovered ? IM_COL32(255, 165, 0, 128) : IM_COL32(255, 165, 0, 64); 
+
+			in_draw_list->AddRectFilled({sprite_bounds.min.x, sprite_bounds.min.y}, { sprite_bounds.max.x, sprite_bounds.max.y }, IM_COL32(255, 255, 255, 64));
+
+			in_draw_list->PushClipRect({sprite_bounds.min.x, sprite_bounds.min.y}, { sprite_bounds.max.x, sprite_bounds.max.y }, true);
+
+			float hatch_step = 10.0f;
+			for (float x = sprite_bounds.min.x; x < sprite_bounds.max.x + sprite_bounds.Size().y; x += hatch_step) {
+				in_draw_list->AddLine(ImVec2(x, sprite_bounds.min.y), ImVec2(x - sprite_bounds.Size().y, sprite_bounds.max.y), hatch_color, 2.0f);
+			}
+
+			in_draw_list->PopClipRect();
+
+			if (is_hovered) 
+			{
+				// in_draw_list->AddRect(ym::sprite_editor::ToImVec2(sprite_bounds.min), ym::sprite_editor::ToImVec2(sprite_bounds.max), IM_COL32(255, 255, 0, 128), 0.0f, 0, 2.0f);
+			}
 		}
 
 		void draw() const override
@@ -536,27 +639,35 @@ namespace
 				{
 					auto&& camera = editor->camera;
 
-					draw_list->AddLine(camera.WorldToScreenImVec(ym::sprite_editor::vec2{-camera.extends.x, 0.0f} * camera.zoom),
-					                   camera.WorldToScreenImVec(ym::sprite_editor::vec2{camera.extends.x, 0.0f } * camera.zoom), IM_COL32(255, 255, 255, 255));
-					draw_list->AddLine(camera.WorldToScreenImVec(ym::sprite_editor::vec2{ 0.0f, -camera.extends.y } * camera.zoom),
-										camera.WorldToScreenImVec(ym::sprite_editor::vec2{ 0.0f, camera.extends.y } * camera.zoom), IM_COL32(255, 255, 255, 255));
+					auto&& left_top = camera.viewport_bounds.min;
+
+					draw_list->AddText({ left_top.x, left_top.y}, IM_COL32(255, 255, 255, 255), std::format("zoom: {}", camera.zoom).c_str());
+
+					draw_list->AddLine(camera.WorldToScreenImVec({-camera.world_extends.x, 0.0f}), camera.WorldToScreenImVec({ camera.world_extends.x, 0.0f }), IM_COL32(255, 255, 255, 255));
+					draw_list->AddLine(camera.WorldToScreenImVec({0.0f, -camera.world_extends.y }), camera.WorldToScreenImVec({ 0.0f, camera.world_extends.y }), IM_COL32(255, 255, 255, 255));
 
 					for (auto&& sprite : editor->sprites())
 					{
 						if (auto&& renderer = editor->renderers.find(sprite->type()); renderer != editor->renderers.cend())
 						{
 							renderer->second(sprite);
+							// draw_selected_sprite(draw_list, sprite, camera);
 						}
+					}
+
+					if (auto&& selected_sprite = !editor->selected_sprite().expired() ? editor->selected_sprite().lock() : nullptr)
+					{
+						// draw_selected_sprite(draw_list, selected_sprite, camera);
 					}
 
 					constexpr auto mini_map_coefficient_size = 0.1f; // 10% of viewport
 					auto&& viewport_bottom_right = camera.viewport_bounds.max;
-					auto&& mini_map_size = ym::sprite_editor::vec2{ viewport_bottom_right.x, viewport_bottom_right.x } * mini_map_coefficient_size;
+					auto&& mini_map_size = glm::vec2{ viewport_bottom_right.x, viewport_bottom_right.x } * mini_map_coefficient_size;
 					auto&& mini_map_pos = viewport_bottom_right - mini_map_size - mini_map_size * mini_map_coefficient_size;
 
-					editor->minimap_state.screen_bounds = { mini_map_pos, mini_map_pos + mini_map_size};
+					// editor->minimap_state.screen_bounds = { mini_map_pos, mini_map_pos + mini_map_size};
 
-					draw_minimap(draw_list, camera, editor->minimap_state, editor->mini_map_fade.GetAlpha());
+					// draw_minimap(draw_list, camera, editor->minimap_state, editor->mini_map_fade.GetAlpha());
 				}
 			}
 		}
@@ -574,6 +685,88 @@ namespace
 		}
 		return nullptr;
 	}
+
+	struct item_width_guard
+	{
+		item_width_guard() : width_(ImGui::CalcItemWidth())
+		{
+			if (width_ > 0.0f)
+			{
+				ImGui::PopItemWidth();
+			}
+		}
+
+		~item_width_guard()
+		{
+			if (width_ > 0.0f)
+			{
+				ImGui::PushItemWidth(width_);
+			}
+		}
+
+	private:
+		const float width_;
+	};
+
+	void draw_sprite_editor_list(const std::shared_ptr<ym::sprite_editor::ISpriteEditor>& in_sprite_editor)
+	{
+		const item_width_guard width_guard;
+
+		using namespace std::literals;
+		constexpr auto sprite_name = "sprite"sv;
+		constexpr auto sprites_in_list = 0x10;
+
+		const ImVec2 list_size = {ImGui::GetFontSize() * sprite_name.size() * 2.0f, ImGui::GetFontSize() * sprites_in_list * 2.0f };
+
+		if (ImGui::BeginListBox("sprites_list", list_size))
+		{
+			auto sprite_id = 0;
+			for (auto&& sprite : in_sprite_editor->sprites())
+			{
+				const auto is_selected = !in_sprite_editor->selected_sprite().expired() && in_sprite_editor->selected_sprite().lock() == sprite;
+
+				ImGui::PushID(sprite_id++);
+				if (ImGui::Selectable("sprite", is_selected))
+				{
+					in_sprite_editor->select_sprite(sprite);
+				}
+
+				if (is_selected) { ImGui::SetItemDefaultFocus(); }
+
+				ImGui::PopID();
+			}
+
+			ImGui::EndListBox();
+		}
+		ImGui::SameLine();
+	}
+
+	void draw_sprite_editor_canvas(const std::shared_ptr<ym::sprite_editor::ISpriteEditor>& in_sprite_editor)
+	{
+		auto&& width = ImGui::CalcItemWidth();
+		auto&& position = ImGui::GetCursorScreenPos();
+
+		const ImVec2 viewport_size = { width, width };
+		const glm::vec2 viewport_top_left = { position.x, position.y };
+		const glm::vec2 viewport_bottom_right = { position.x + width, position.y + width };
+
+		ImGui::SetNextItemAllowOverlap();
+		ImGui::InvisibleButton("sprite_editor", viewport_size);
+
+		in_sprite_editor->update(viewport_top_left, viewport_bottom_right);
+
+		if (auto* draw_list = ImGui::GetWindowDrawList())
+		{
+			ImGui::PushClipRect({viewport_top_left.x, viewport_top_left.y}, {viewport_bottom_right.x, viewport_bottom_right.y}, true);
+
+			in_sprite_editor->draw();
+
+			draw_list->AddQuad(position, { position.x + width, position.y }, { position.x + width, position.y + width }, { position.x, position.y + width }, IM_COL32(128, 128, 128, 255), 3.0f);
+
+			ImGui::PopClipRect();
+		}
+	}
+
 }
 
 namespace ym::sprite_editor
@@ -613,28 +806,8 @@ namespace ym::sprite_editor
 	{
 		if (in_sprite_editor)
 		{
-			auto&& width = ImGui::CalcItemWidth();
-			auto&& position = ImGui::GetCursorScreenPos();
-
-			const ImVec2 viewport_size = { width, width };
-			const vec2 viewport_top_left = { position.x, position.y };
-			const vec2 viewport_bottom_right = { position.x + width, position.y + width };
-
-			ImGui::SetNextItemAllowOverlap();
-			ImGui::InvisibleButton("sprite_editor", viewport_size);
-
-			in_sprite_editor->update(viewport_top_left, viewport_bottom_right);
-
-			if (auto* draw_list = ImGui::GetWindowDrawList())
-			{
-				ImGui::PushClipRect(ToImVec2(viewport_top_left), ToImVec2(viewport_bottom_right), true);
-
-				in_sprite_editor->draw();
-
-				draw_list->AddQuad(position, { position.x + width, position.y }, { position.x + width, position.y + width }, { position.x, position.y + width }, IM_COL32(128, 128, 128, 255), 3.0f);
-
-				ImGui::PopClipRect();
-			}
+			draw_sprite_editor_list(in_sprite_editor);
+			draw_sprite_editor_canvas(in_sprite_editor);
 		}
 	}
 }

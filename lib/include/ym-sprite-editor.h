@@ -4,6 +4,7 @@
 #include <functional>
 #include <memory>
 #include "imgui.h" // TODO: Move to another header
+#include "glm/vec2.hpp"
 
 #include "ym-sprite-editor/math.h"
 #include "ym-sprite-editor/types.h"
@@ -13,9 +14,6 @@ namespace ym::sprite_editor
 	class BaseSprite;
 	using vec2 = math::vec<float, 2>;
 	using vec3 = math::vec<float, 3>;
-
-    using size_t = math::vec<std::uint16_t, 2>;
-    using position_t = math::vec<std::int32_t, 2>;
 
     template <typename T, typename F>
     concept SpriteCreationCallback = requires(F creation, std::shared_ptr<T> sprite)
@@ -37,11 +35,11 @@ namespace ym::sprite_editor
     public:
         virtual ~BaseSprite() = default;
 
-        virtual ::size_t type() const = 0;
+        virtual size_t type() const = 0;
 
-        virtual size_t get_size() const = 0;
+        virtual glm::vec2 get_size() const = 0;
 
-        position_t position{0, 0};
+        glm::vec2 position;
     };
 
 	class ISpriteEditor
@@ -52,7 +50,7 @@ namespace ym::sprite_editor
         virtual void add_sprite(const std::shared_ptr<BaseSprite>& in_sprite) = 0;
         virtual std::shared_ptr<BaseSprite> create_sprite() = 0;
 
-        virtual void update(const vec2& in_viewport_min, const vec2& in_viewport_max) = 0;
+        virtual void update(const glm::vec2& in_viewport_min, const glm::vec2& in_viewport_max) = 0;
 		virtual void draw() const = 0;
 
 		struct sprite_range
@@ -103,8 +101,13 @@ namespace ym::sprite_editor
         virtual sprite_range sprites() const = 0;
         virtual ::size_t sprites_num() const = 0;
 
+        virtual std::weak_ptr<BaseSprite> selected_sprite() const = 0;
+        virtual void select_sprite(const std::shared_ptr<BaseSprite>& in_sprite) = 0;
+
         virtual vec2 world_bounds() const = 0;
-        virtual vec2 world_to_screen(const vec2& in_position) const = 0;
+
+        virtual glm::vec2 world_to_screen(const glm::vec2& in_world_location) const = 0;
+        virtual glm::vec2 world_size_to_screen_size(const glm::vec2& in_world_size) const = 0;
 
         template <typename T> requires IsBaseSprite<T>
         std::shared_ptr<T> create_sprite()
