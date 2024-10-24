@@ -99,6 +99,16 @@ namespace
 			return { (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f};
 		}
 
+		glm::vec2 GetNormalized(const glm::vec2& in_coords) const
+		{
+			auto&& center = Center();
+			auto&& size = Size();
+
+			auto&& origin = in_coords - center;
+
+			return origin / size * 2.0f;
+		}
+
 		float ClampX(float in_x) const
 		{
 			return std::clamp(in_x, min.x, max.x);
@@ -137,10 +147,10 @@ namespace
 		{
 			const auto screen_normalized_location = Projection() * glm::vec4(in_world_location, 0.0f, 1.0f);
 
-			glm::vec2 normalized_location(screen_normalized_location.x / screen_normalized_location.w,
-				screen_normalized_location.y / screen_normalized_location.w);
+			const glm::vec2 normalized_location(screen_normalized_location.x / screen_normalized_location.w,
+			                                    screen_normalized_location.y / screen_normalized_location.w);
 
-			glm::vec2 screen_location = (normalized_location + glm::vec2(1.0f)) * 0.5f * viewport_bounds.Size();
+			const glm::vec2 screen_location = (normalized_location + glm::vec2(1.0f)) * 0.5f * viewport_bounds.Size();
 
 			return viewport_bounds.min + screen_location;
 		}
@@ -289,7 +299,7 @@ namespace
 		FBounds screen_bounds{};
 
 		bool is_dragging = false;
-		ym::sprite_editor::vec2 last_mouse_pos{};
+		glm::vec2 last_mouse_pos{};
 	};
 
 	class SegaSprite : public ym::sprite_editor::BaseSprite
@@ -557,45 +567,48 @@ namespace
 
 		static void draw_minimap(ImDrawList* draw_list, FCamera& camera, FMinimapState& minimap_state, float alpha)
 		{
-			//if (std::abs(alpha) > 0.1f) {
-			//	const FCursorScreenGuard cursor_guard(minimap_state.screen_bounds.min);
+			if (std::abs(alpha) > 0.1f) {
+				const FCursorScreenGuard cursor_guard(minimap_state.screen_bounds.min);
 
-			//	ImGui::InvisibleButton("mini_map", ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.Size()));
+				ImGui::SetNextItemAllowOverlap();
+				ImGui::InvisibleButton("mini_map", ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.Size()));
 
-			//	auto&& left_top = ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.min);
-			//	auto&& right_bottom = ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.max);
+				auto&& left_top = ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.min);
+				auto&& right_bottom = ym::sprite_editor::ToImVec2(minimap_state.screen_bounds.max);
 
-			//	draw_list->AddRectFilled(left_top, right_bottom, IM_COL32(50, 50, 50, 255 * alpha));
-			//	{
-			//		auto mini_map_bounds = minimap_state.screen_bounds;
-			//		auto&& world_location = camera.position / camera.extends;
-			//		
-			//		mini_map_bounds.Scale(1.0f / camera.zoom);
-			//		mini_map_bounds.Offset(world_location * mini_map_bounds.Size() / 2.0f);
+				draw_list->AddRectFilled(left_top, right_bottom, IM_COL32(50, 50, 50, 255 * alpha));
+				{
+					auto&& zoom = (camera.viewport_bounds.Size() / 2.0f) / camera.zoom / camera.world_extends;
 
-			//		draw_list->AddRect(ym::sprite_editor::ToImVec2(mini_map_bounds.min), ym::sprite_editor::ToImVec2(mini_map_bounds.max), IM_COL32(0, 255, 0, 255 * alpha), 0.0f, 0, 2.0f);
-			//	}
-			//	draw_list->AddRect(left_top, right_bottom, IM_COL32(255, 255, 255, 255 * alpha));
+					auto mini_map_bounds = minimap_state.screen_bounds;
+					auto&& world_location = camera.position / camera.world_extends;
+					
+					mini_map_bounds.Scale(std::max(zoom.x, zoom.y));
+					mini_map_bounds.Offset(world_location * minimap_state.screen_bounds.Size() / 2.0f);
 
-			//	if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-			//		ym::sprite_editor::vec2 mouse_pos = {ImGui::GetMousePos().x, ImGui::GetMousePos().y};
-			//		// camera.position = camera.MinimapToWorld(minimap_pos, minimap_size, mouse_pos);
-			//		minimap_state.is_dragging = true;
-			//		minimap_state.last_mouse_pos = mouse_pos;
-			//	}
+					draw_list->AddRect(ym::sprite_editor::ToImVec2(mini_map_bounds.min), ym::sprite_editor::ToImVec2(mini_map_bounds.max), IM_COL32(0, 255, 0, 255 * alpha), 0.0f, 0, 2.0f);
+				}
+				draw_list->AddRect(left_top, right_bottom, IM_COL32(255, 255, 255, 255 * alpha));
 
-			//	if (minimap_state.is_dragging && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-			//		ym::sprite_editor::vec2 current_mouse_pos = {ImGui::GetMousePos().x, ImGui::GetMousePos().y};
-			//		ym::sprite_editor::vec2 delta = current_mouse_pos - minimap_state.last_mouse_pos;
+				const glm::vec2 mouse_position = { ImGui::GetMousePos().x, ImGui::GetMousePos().y };
 
-			//		// camera.position += delta;
-			//		minimap_state.last_mouse_pos = current_mouse_pos;
-			//	}
+				if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+					camera.position = minimap_state.screen_bounds.GetNormalized(mouse_position) * camera.world_extends;
+					minimap_state.is_dragging = true;
+					minimap_state.last_mouse_pos = mouse_position;
+				}
 
-			//	if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-			//		minimap_state.is_dragging = false;
-			//	}
-			//}
+				if (minimap_state.is_dragging && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+					auto&& delta = minimap_state.screen_bounds.GetNormalized(mouse_position) - minimap_state.screen_bounds.GetNormalized(minimap_state.last_mouse_pos);
+
+					camera.position += delta * camera.world_extends;
+					minimap_state.last_mouse_pos = mouse_position;
+				}
+
+				if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+					minimap_state.is_dragging = false;
+				}
+			}
 		}
 
 		void target(void* in_source) override
@@ -671,9 +684,9 @@ namespace
 					auto&& mini_map_size = glm::vec2{ viewport_bottom_right.x, viewport_bottom_right.x } * mini_map_coefficient_size;
 					auto&& mini_map_pos = viewport_bottom_right - mini_map_size - mini_map_size * mini_map_coefficient_size;
 
-					// editor->minimap_state.screen_bounds = { mini_map_pos, mini_map_pos + mini_map_size};
+					editor->minimap_state.screen_bounds = { mini_map_pos, mini_map_pos + mini_map_size};
 
-					// draw_minimap(draw_list, camera, editor->minimap_state, editor->mini_map_fade.GetAlpha());
+					draw_minimap(draw_list, camera, editor->minimap_state, editor->mini_map_fade.GetAlpha());
 				}
 			}
 		}

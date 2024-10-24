@@ -30,6 +30,11 @@ namespace ym::sprite_editor
         return { static_cast<float>(in_vector.x), static_cast<float>(in_vector.y) };
     }
 
+    inline ImVec2 ToImVec2(const glm::vec2& in_vector)
+    {
+        return { static_cast<float>(in_vector.x), static_cast<float>(in_vector.y) };
+    }
+
     class BaseSprite
     {
     public:
