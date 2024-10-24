@@ -58,6 +58,8 @@ namespace ym::sprite_editor
         virtual void update(const glm::vec2& in_viewport_min, const glm::vec2& in_viewport_max) = 0;
 		virtual void draw() const = 0;
 
+        virtual void draw_sprite_details() const = 0;
+
 		struct sprite_range
         {
             struct iterator
@@ -109,7 +111,7 @@ namespace ym::sprite_editor
         virtual std::weak_ptr<BaseSprite> selected_sprite() const = 0;
         virtual void select_sprite(const std::shared_ptr<BaseSprite>& in_sprite) = 0;
 
-        virtual vec2 world_bounds() const = 0;
+        virtual glm::vec2 world_bounds() const = 0;
 
         virtual glm::vec2 world_to_screen(const glm::vec2& in_world_location) const = 0;
         virtual glm::vec2 world_size_to_screen_size(const glm::vec2& in_world_size) const = 0;
@@ -146,6 +148,7 @@ namespace ym::sprite_editor
 
         using creation_function_t = std::function<std::shared_ptr<BaseSprite>()>;
         using renderer_function_t = std::function<void(const std::shared_ptr<BaseSprite>& in_sprite)>;
+        using renderer_details_function_t = std::function<void(std::shared_ptr<BaseSprite>& in_sprite)>;
 
         template <typename T> requires IsBaseSprite<T>
         void register_sprite_renderer(renderer_function_t&& in_sprite_renderer)
@@ -153,12 +156,19 @@ namespace ym::sprite_editor
             on_register_sprite_renderer(types::type_id<T>(), std::move(in_sprite_renderer));
         }
 
-	protected:
-        virtual void on_set_default_sprite(::size_t in_type) = 0;
-        virtual void on_register_sprite(::size_t in_type, creation_function_t&& in_sprite_creation) = 0;
-        virtual void on_register_sprite_renderer(::size_t in_type, renderer_function_t&& in_sprite_renderer) = 0;
+        template <typename T> requires IsBaseSprite<T>
+        void register_sprite_details_renderer(renderer_details_function_t&& in_sprite_renderer)
+        {
+            on_register_sprite_details_renderer(types::type_id<T>(), std::move(in_sprite_renderer));
+        }
 
-        virtual std::shared_ptr<BaseSprite> on_create_sprite(::size_t in_type) = 0;
+	protected:
+        virtual void on_set_default_sprite(size_t in_type) = 0;
+        virtual void on_register_sprite(size_t in_type, creation_function_t&& in_sprite_creation) = 0;
+        virtual void on_register_sprite_renderer(size_t in_type, renderer_function_t&& in_sprite_renderer) = 0;
+        virtual void on_register_sprite_details_renderer(size_t in_type, renderer_details_function_t&& in_sprite_renderer) = 0;
+
+        virtual std::shared_ptr<BaseSprite> on_create_sprite(size_t in_type) = 0;
 	};
 
     std::shared_ptr<ISpriteEditor> create_sprite_editor();

@@ -346,9 +346,9 @@ namespace
 			sprites_.push_back(in_sprite);
 		}
 
-		ym::sprite_editor::vec2 world_bounds() const override
+		glm::vec2 world_bounds() const override
 		{
-			return {};
+			return camera.world_extends;
 		}
 
 		glm::vec2 world_to_screen(const glm::vec2& in_position) const override
@@ -434,6 +434,17 @@ namespace
 			drawable_->draw(); // TODO: Seems like shitty way
 		}
 
+		void draw_sprite_details() const override
+		{
+			if (auto&& selected_sprite = !current_selected_sprite.expired() ? current_selected_sprite.lock() : nullptr)
+			{
+				if (auto&& renderer = details_renderers.find(selected_sprite->type()); renderer != details_renderers.cend())
+				{
+					renderer->second(selected_sprite);
+				}
+			}
+		}
+
 		sprite_range sprites() const override
 		{
 			struct vector_impl : sprite_range::iterator::iterator_impl
@@ -514,6 +525,11 @@ namespace
 			renderers[in_type] = std::move(in_sprite_renderer);
 		}
 
+		void on_register_sprite_details_renderer(size_t in_type, renderer_details_function_t&& in_sprite_renderer) override
+		{
+			details_renderers[in_type] = std::move(in_sprite_renderer);
+		}
+
 		std::shared_ptr<ym::sprite_editor::BaseSprite> on_create_sprite(::size_t in_type) override
 		{
 			if (auto it = creators.find(in_type); it != creators.cend())
@@ -535,8 +551,9 @@ namespace
 
 		std::optional<size_t> default_sprite_type;
 
-		std::unordered_map<::size_t, creation_function_t> creators;
-		std::unordered_map<::size_t, renderer_function_t> renderers;
+		std::unordered_map<size_t, creation_function_t> creators;
+		std::unordered_map<size_t, renderer_function_t> renderers;
+		std::unordered_map<size_t, renderer_details_function_t> details_renderers;
 
 		FColorInterpolation mini_map_fade{ {1.0f, 1.0f, 1.0f, 1.0f}, 0.0f, 10.5f, EInterpolationType::Sinusoidal };
 		FInterpolation zoom;
@@ -786,6 +803,10 @@ namespace
 		}
 	}
 
+	void draw_sprite_details(const std::shared_ptr<ym::sprite_editor::ISpriteEditor>& in_sprite_editor)
+	{
+		in_sprite_editor->draw_sprite_details();
+	}
 }
 
 namespace ym::sprite_editor
@@ -827,6 +848,7 @@ namespace ym::sprite_editor
 		{
 			draw_sprite_editor_list(in_sprite_editor);
 			draw_sprite_editor_canvas(in_sprite_editor);
+			draw_sprite_details(in_sprite_editor);
 		}
 	}
 }
