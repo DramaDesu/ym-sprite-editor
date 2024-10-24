@@ -9,6 +9,7 @@
 #include <string>
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "SDL_render.h"
 
 #include <glm/vec2.hpp>
@@ -374,19 +375,36 @@ namespace
 			camera.viewport_bounds = { in_viewport_min, in_viewport_max };
 
 			auto&& io = ImGui::GetIO();
-			if (ImGui::IsItemHovered())
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_RectOnly))
 			{
-				if (io.MouseWheel != 0.0f)
+				if (std::abs(io.MouseWheel) > std::numeric_limits<float>::epsilon())
 				{
 					const float zoom_factor = io.MouseWheel > 0 ? 1.1f : 0.9f;
 					const float target_zoom = camera.zoom * zoom_factor;
 					zoom.SetTarget(target_zoom);
 				}
 
-				if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+				if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 				{
 					auto&& mouse_delta = io.MouseDelta;
 					camera.position += glm::vec2{ -mouse_delta.x / camera.zoom, -mouse_delta.y / camera.zoom };
+				}
+				else if (ImGui::IsItemActive() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+				{
+					current_selected_sprite.reset();
+
+					for (auto&& sprite : sprites())
+					{
+						const auto sprite_bounds = camera.WorldToScreen(sprite->position, sprite->get_size());
+
+						const auto mouse_pos = ImGui::GetMousePos();
+						if (sprite_bounds.Contains({ mouse_pos.x, mouse_pos.y }))
+						{
+							select_sprite(sprite);
+							ImGui::ClearActiveID();
+							break;
+						}
+					}
 				}
 			}
 
@@ -589,28 +607,20 @@ namespace
 		{
 			const auto sprite_bounds = in_camera.WorldToScreen(in_selected_sprite->position, in_selected_sprite->get_size());
 
+			const FCursorScreenGuard guard(sprite_bounds.min);
+
 			const auto mouse_pos = ImGui::GetMousePos();
 			const auto is_hovered = sprite_bounds.Contains({ mouse_pos.x, mouse_pos.y });
 
-			static bool is_dragging = false; 
+			ImGui::InvisibleButton("selected_sprite", { sprite_bounds.Size().x, sprite_bounds.Size().y });
 
-			if (is_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) 
+			auto&& io = ImGui::GetIO();
+			if (ImGui::IsItemHovered() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 			{
-				is_dragging = true;
+				auto&& delta = io.MouseDelta;
+				in_selected_sprite->position.x += delta.x / in_camera.zoom;
+				in_selected_sprite->position.y += delta.y / in_camera.zoom;
 			}
-
-			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) 
-			{
-				is_dragging = false;
-			}
-
-			if (is_dragging) 
-			{
-				ImVec2 delta = ImGui::GetIO().MouseDelta; 
-				// in_selected_sprite->position.x += delta.x / in_camera.zoom;
-				// in_selected_sprite->position.y += delta.y / in_camera.zoom;
-			}
-
 
 			const ImU32 hatch_color = is_hovered ? IM_COL32(255, 165, 0, 128) : IM_COL32(255, 165, 0, 64); 
 
@@ -618,17 +628,14 @@ namespace
 
 			in_draw_list->PushClipRect({sprite_bounds.min.x, sprite_bounds.min.y}, { sprite_bounds.max.x, sprite_bounds.max.y }, true);
 
-			float hatch_step = 10.0f;
+			constexpr auto hatch_step = 10.0f;
 			for (float x = sprite_bounds.min.x; x < sprite_bounds.max.x + sprite_bounds.Size().y; x += hatch_step) {
 				in_draw_list->AddLine(ImVec2(x, sprite_bounds.min.y), ImVec2(x - sprite_bounds.Size().y, sprite_bounds.max.y), hatch_color, 2.0f);
 			}
 
 			in_draw_list->PopClipRect();
 
-			if (is_hovered) 
-			{
-				// in_draw_list->AddRect(ym::sprite_editor::ToImVec2(sprite_bounds.min), ym::sprite_editor::ToImVec2(sprite_bounds.max), IM_COL32(255, 255, 0, 128), 0.0f, 0, 2.0f);
-			}
+			in_draw_list->AddRect({ sprite_bounds.min.x, sprite_bounds.min.y }, { sprite_bounds.max.x, sprite_bounds.max.y }, hatch_color, 0.0f, 0, 2.0f);
 		}
 
 		void draw() const override
@@ -651,13 +658,12 @@ namespace
 						if (auto&& renderer = editor->renderers.find(sprite->type()); renderer != editor->renderers.cend())
 						{
 							renderer->second(sprite);
-							// draw_selected_sprite(draw_list, sprite, camera);
 						}
 					}
 
 					if (auto&& selected_sprite = !editor->selected_sprite().expired() ? editor->selected_sprite().lock() : nullptr)
 					{
-						// draw_selected_sprite(draw_list, selected_sprite, camera);
+						draw_selected_sprite(draw_list, selected_sprite, camera);
 					}
 
 					constexpr auto mini_map_coefficient_size = 0.1f; // 10% of viewport
