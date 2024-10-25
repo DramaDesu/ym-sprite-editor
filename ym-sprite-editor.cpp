@@ -135,6 +135,8 @@ namespace ym::ui {
 
 			ImGui::End();
 		}
+
+		ImGui::ShowDemoWindow();
 	}
 }
 
@@ -229,6 +231,8 @@ struct FSpriteEditorApplication
 		{
 			if (ImGui::BeginChild("sprite_details"))
 			{
+				ImGui::TextDisabled("texture sprite");
+
 				auto&& world_bounds= editor->world_bounds();
 
 				auto&& texture_sprite = std::static_pointer_cast<ym::ui::TextureSprite>(in_sprite);

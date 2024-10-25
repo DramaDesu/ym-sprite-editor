@@ -302,6 +302,18 @@ namespace
 		glm::vec2 last_mouse_pos{};
 	};
 
+	struct FDeferredScreenCursor
+	{
+		FDeferredScreenCursor(const ImVec2& in_deferred_cursor) : deferred_cursor(in_deferred_cursor) {}
+		~FDeferredScreenCursor()
+		{
+			ImGui::SetCursorScreenPos(deferred_cursor);
+		}
+
+	private:
+		ImVec2 deferred_cursor;
+	};
+
 	class SegaSprite : public ym::sprite_editor::BaseSprite
 	{
 	public:
@@ -346,6 +358,11 @@ namespace
 			sprites_.push_back(in_sprite);
 		}
 
+		void remove_sprite(const std::shared_ptr<ym::sprite_editor::BaseSprite>& in_sprite) override
+		{
+			pending_remove_sprites_.push_back(in_sprite);
+		}
+
 		glm::vec2 world_bounds() const override
 		{
 			return camera.world_extends;
@@ -381,6 +398,12 @@ namespace
 
 		void update(const glm::vec2& in_viewport_min, const glm::vec2& in_viewport_max) override
 		{
+			for (const auto& pending_remove_sprite : pending_remove_sprites_)
+			{
+				std::erase(sprites_, pending_remove_sprite);
+			}
+			pending_remove_sprites_.clear();
+
 			camera.world_extends = { MaxGridSize(), MaxGridSize() };
 			camera.viewport_bounds = { in_viewport_min, in_viewport_max };
 
@@ -509,6 +532,14 @@ namespace
 			}
 		}
 
+		void focus_camera_on_sprite() override
+		{
+			if (auto&& selected_sprite = !current_selected_sprite.expired() ? current_selected_sprite.lock() : nullptr)
+			{
+				camera.position = selected_sprite->position;
+			}
+		}
+
 	private:
 		void on_set_default_sprite(size_t in_type) override
 		{
@@ -548,6 +579,7 @@ namespace
 		using sprite_t = std::shared_ptr<ym::sprite_editor::BaseSprite>;
 
 		std::vector<sprite_t> sprites_;
+		std::vector<sprite_t> pending_remove_sprites_;
 
 		std::optional<size_t> default_sprite_type;
 
@@ -754,7 +786,10 @@ namespace
 
 		const ImVec2 list_size = {ImGui::GetFontSize() * sprite_name.size() * 2.0f, ImGui::GetFontSize() * sprites_in_list * 2.0f };
 
-		if (ImGui::BeginListBox("sprites_list", list_size))
+		ImGui::SetNextItemWidth(list_size.x);
+		ImGui::TextDisabled("Sprites");
+
+		if (ImGui::BeginListBox("##sprites_list", list_size))
 		{
 			auto sprite_id = 0;
 			for (auto&& sprite : in_sprite_editor->sprites())
@@ -762,12 +797,30 @@ namespace
 				const auto is_selected = !in_sprite_editor->selected_sprite().expired() && in_sprite_editor->selected_sprite().lock() == sprite;
 
 				ImGui::PushID(sprite_id++);
-				if (ImGui::Selectable("sprite", is_selected))
+				ImGui::SetNextItemAllowOverlap();
+				if (ImGui::Selectable("sprite", is_selected, ImGuiSelectableFlags_AllowDoubleClick))
 				{
 					in_sprite_editor->select_sprite(sprite);
+					if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+					{
+						in_sprite_editor->focus_camera_on_sprite();
+					}
 				}
 
-				if (is_selected) { ImGui::SetItemDefaultFocus(); }
+				ImGui::BeginDisabled(!is_selected);
+
+				ImGui::SameLine(list_size.x - ImGui::GetFontSize() * 1.5f);
+				if (ImGui::SmallButton("x"))
+				{
+					in_sprite_editor->remove_sprite(sprite);
+				}
+
+				ImGui::EndDisabled();
+
+				if (is_selected)
+				{
+					ImGui::SetItemDefaultFocus();
+				}
 
 				ImGui::PopID();
 			}
@@ -789,11 +842,13 @@ namespace
 		ImGui::SetNextItemAllowOverlap();
 		ImGui::InvisibleButton("sprite_editor", viewport_size);
 
+		const FDeferredScreenCursor deferred_screen({ position.x + ImGui::GetItemRectSize().x + ImGui::GetStyle().IndentSpacing, position.y });
+
 		in_sprite_editor->update(viewport_top_left, viewport_bottom_right);
 
 		if (auto* draw_list = ImGui::GetWindowDrawList())
 		{
-			ImGui::PushClipRect({viewport_top_left.x, viewport_top_left.y}, {viewport_bottom_right.x, viewport_bottom_right.y}, true);
+			ImGui::PushClipRect({ viewport_top_left.x, viewport_top_left.y }, { viewport_bottom_right.x, viewport_bottom_right.y }, true);
 
 			in_sprite_editor->draw();
 
