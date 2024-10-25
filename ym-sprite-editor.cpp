@@ -135,8 +135,6 @@ namespace ym::ui {
 
 			ImGui::End();
 		}
-
-		ImGui::ShowDemoWindow();
 	}
 }
 
@@ -306,6 +304,7 @@ struct FSpriteEditorApplication
 						add_texture_sprite(created_sprite_editor);
 
 						sprite_editor = created_sprite_editor;
+						sprite_editor->set_grid_cell_size(128);
 					}
 					main_loop();
 				}

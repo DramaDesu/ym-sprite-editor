@@ -162,8 +162,8 @@ namespace
 			return{ screen_location.x, screen_location.y };
 		}
 
-		ym::sprite_editor::vec2 ScreenToWorld(const ym::sprite_editor::vec2& in_screen_pos) const {
-			ym::sprite_editor::vec2 world_pos;
+		glm::vec2 ScreenToWorld(const glm::vec2& in_screen_pos) const {
+			glm::vec2 world_pos;
 			world_pos.x = (in_screen_pos.x - (viewport_bounds.min.x + (viewport_bounds.max.x - viewport_bounds.min.x) / 2)) / zoom + position.x;
 			world_pos.y = (in_screen_pos.y - (viewport_bounds.min.y + (viewport_bounds.max.y - viewport_bounds.min.y) / 2)) / zoom + position.y;
 			return world_pos;
@@ -351,6 +351,11 @@ namespace
 		std::shared_ptr<ym::sprite_editor::BaseSprite> create_sprite() override
 		{
 			return default_sprite_type.has_value() ? on_create_sprite(default_sprite_type.value()) : nullptr;
+		}
+
+		void set_grid_cell_size(std::uint16_t in_size) override
+		{
+			grid_cell_size = in_size;
 		}
 
 		void add_sprite(const std::shared_ptr<ym::sprite_editor::BaseSprite>& in_sprite) override
@@ -582,6 +587,7 @@ namespace
 		std::vector<sprite_t> pending_remove_sprites_;
 
 		std::optional<size_t> default_sprite_type;
+		std::optional<std::uint16_t> grid_cell_size;
 
 		std::unordered_map<size_t, creation_function_t> creators;
 		std::unordered_map<size_t, renderer_function_t> renderers;
@@ -677,7 +683,7 @@ namespace
 			ImGui::InvisibleButton("selected_sprite", { sprite_bounds.Size().x, sprite_bounds.Size().y });
 
 			auto&& io = ImGui::GetIO();
-			if (ImGui::IsItemHovered() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+			if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 			{
 				auto&& delta = io.MouseDelta;
 				in_selected_sprite->position.x += delta.x / in_camera.zoom;
@@ -700,6 +706,45 @@ namespace
 			in_draw_list->AddRect({ sprite_bounds.min.x, sprite_bounds.min.y }, { sprite_bounds.max.x, sprite_bounds.max.y }, hatch_color, 0.0f, 0, 2.0f);
 		}
 
+		void draw_grid() const
+		{
+			if (editor->grid_cell_size.has_value())
+			{
+				auto* draw_list = ImGui::GetWindowDrawList();
+
+				auto&& camera = editor->camera;
+
+				const float cell_size = editor->grid_cell_size.value();
+				auto viewport_min = camera.viewport_bounds.min;
+				auto viewport_max = camera.viewport_bounds.max;
+
+				glm::vec2 world_min = camera.ScreenToWorld({ viewport_min.x, viewport_min.y });
+				glm::vec2 world_max = camera.ScreenToWorld({ viewport_max.x, viewport_max.y });
+
+
+				int min_x = static_cast<int>(std::floor(world_min.x / cell_size)) * static_cast<int>(cell_size);
+				int max_x = static_cast<int>(std::ceil(world_max.x / cell_size)) * static_cast<int>(cell_size);
+				int min_y = static_cast<int>(std::floor(world_min.y / cell_size)) * static_cast<int>(cell_size);
+				int max_y = static_cast<int>(std::ceil(world_max.y / cell_size)) * static_cast<int>(cell_size);
+
+				for (int x = min_x; x <= max_x; x += static_cast<int>(cell_size)) {
+					glm::vec2 world_start = { static_cast<float>(x), world_min.y };
+					glm::vec2 world_end = { static_cast<float>(x), world_max.y };
+					ImVec2 screen_start = camera.WorldToScreenImVec(world_start);
+					ImVec2 screen_end = camera.WorldToScreenImVec(world_end);
+					draw_list->AddLine(screen_start, screen_end, IM_COL32(128, 128, 128, 100));
+				}
+
+				for (int y = min_y; y <= max_y; y += static_cast<int>(cell_size)) {
+					glm::vec2 world_start = { world_min.x, static_cast<float>(y) };
+					glm::vec2 world_end = { world_max.x, static_cast<float>(y) };
+					ImVec2 screen_start = camera.WorldToScreenImVec(world_start);
+					ImVec2 screen_end = camera.WorldToScreenImVec(world_end);
+					draw_list->AddLine(screen_start, screen_end, IM_COL32(128, 128, 128, 100));
+				}
+			}
+		}
+
 		void draw() const override
 		{
 			if (editor != nullptr) [[likely]]
@@ -710,7 +755,7 @@ namespace
 
 					auto&& left_top = camera.viewport_bounds.min;
 
-					draw_list->AddText({ left_top.x, left_top.y}, IM_COL32(255, 255, 255, 255), std::format("zoom: {}", camera.zoom).c_str());
+					draw_grid();
 
 					draw_list->AddLine(camera.WorldToScreenImVec({-camera.world_extends.x, 0.0f}), camera.WorldToScreenImVec({ camera.world_extends.x, 0.0f }), IM_COL32(255, 255, 255, 255));
 					draw_list->AddLine(camera.WorldToScreenImVec({0.0f, -camera.world_extends.y }), camera.WorldToScreenImVec({ 0.0f, camera.world_extends.y }), IM_COL32(255, 255, 255, 255));
@@ -736,6 +781,8 @@ namespace
 					editor->minimap_state.screen_bounds = { mini_map_pos, mini_map_pos + mini_map_size};
 
 					draw_minimap(draw_list, camera, editor->minimap_state, editor->mini_map_fade.GetAlpha());
+
+					draw_list->AddText({ left_top.x, left_top.y }, IM_COL32(255, 255, 255, 255), std::format("zoom: {}", camera.zoom).c_str());
 				}
 			}
 		}

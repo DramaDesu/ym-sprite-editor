@@ -56,6 +56,8 @@ namespace ym::sprite_editor
         virtual void remove_sprite(const std::shared_ptr<BaseSprite>& in_sprite) = 0;
         virtual std::shared_ptr<BaseSprite> create_sprite() = 0;
 
+        virtual void set_grid_cell_size(std::uint16_t in_size) = 0;
+
         virtual void update(const glm::vec2& in_viewport_min, const glm::vec2& in_viewport_max) = 0;
 		virtual void draw() const = 0;
 
@@ -111,7 +113,7 @@ namespace ym::sprite_editor
 
         virtual std::weak_ptr<BaseSprite> selected_sprite() const = 0;
         virtual void select_sprite(const std::shared_ptr<BaseSprite>& in_sprite) = 0;
-        virtual void move_to_selected_sprite() = 0;
+        virtual void focus_camera_on_sprite() = 0;
 
         virtual glm::vec2 world_bounds() const = 0;
 
