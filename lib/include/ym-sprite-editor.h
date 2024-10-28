@@ -166,6 +166,13 @@ namespace ym::sprite_editor
             on_register_sprite_details_renderer(types::type_id<T>(), std::move(in_sprite_renderer));
         }
 
+        virtual void setup_snap(const std::initializer_list<std::uint16_t>& in_snaps) = 0;
+
+        virtual void free_snap() = 0;
+        virtual void set_snap(std::uint8_t in_snap) = 0;
+
+        virtual std::int16_t get_snap() const = 0;
+
 	protected:
         virtual void on_set_default_sprite(size_t in_type) = 0;
         virtual void on_register_sprite(size_t in_type, creation_function_t&& in_sprite_creation) = 0;

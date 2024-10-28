@@ -314,6 +314,22 @@ namespace
 		ImVec2 deferred_cursor;
 	};
 
+	struct FTransparencyGuard
+	{
+		FTransparencyGuard(float in_transparency)
+		{
+			transparency_ = ImGui::GetStyle().Alpha;
+			ImGui::GetStyle().Alpha = in_transparency;
+		}
+		~FTransparencyGuard()
+		{
+			ImGui::GetStyle().Alpha = transparency_;
+		}
+
+	private:
+		float transparency_;
+	};
+
 	class SegaSprite : public ym::sprite_editor::BaseSprite
 	{
 	public:
@@ -381,6 +397,26 @@ namespace
 		glm::vec2 world_size_to_screen_size(const glm::vec2& in_world_size) const override
 		{
 			return camera.WorldSizeToScreenSize(in_world_size);
+		}
+
+		void setup_snap(const std::initializer_list<std::uint16_t>& in_snaps) override
+		{
+			snaps = in_snaps;
+		}
+
+		void free_snap() override
+		{
+			snap.reset();
+		}
+
+		void set_snap(std::uint8_t in_snap) override
+		{
+			snap = std::min<std::int16_t>(in_snap, !snaps.empty() ? static_cast<std::int16_t>(snaps.size()) - 1 : 0);
+		}
+
+		std::int16_t get_snap() const override
+		{
+			return snap.value_or(-1);
 		}
 
 		static float MinGridSize()
@@ -600,6 +636,9 @@ namespace
 		std::weak_ptr<ym::sprite_editor::BaseSprite> current_selected_sprite;
 
 		std::unique_ptr<drawable_t> drawable_;
+
+		std::optional<std::int16_t> snap;
+		std::vector<std::uint16_t> snaps;
 	};
 
 
@@ -671,23 +710,41 @@ namespace
 			editor = static_cast<SegaSpriteEditor*>(in_source);
 		}
 
+		void move_sprite(const std::shared_ptr<ym::sprite_editor::BaseSprite>& in_selected_sprite, const ImVec2& in_delta) const
+		{
+			in_selected_sprite->position.x += in_delta.x;
+			in_selected_sprite->position.y += in_delta.y;
+		}
+
+		void snap_sprite(const std::shared_ptr<ym::sprite_editor::BaseSprite>& in_selected_sprite) const
+		{
+			if (editor->snap.has_value())
+			{
+				const auto grid_size = static_cast<float>(editor->snaps[editor->snap.value()]);
+
+				in_selected_sprite->position.x = std::round(in_selected_sprite->position.x / grid_size) * grid_size;
+				in_selected_sprite->position.y = std::round(in_selected_sprite->position.y / grid_size) * grid_size;
+			}
+		}
+
 		void draw_selected_sprite(ImDrawList* in_draw_list, const std::shared_ptr<ym::sprite_editor::BaseSprite>& in_selected_sprite, const FCamera& in_camera) const
 		{
 			const auto sprite_bounds = in_camera.WorldToScreen(in_selected_sprite->position, in_selected_sprite->get_size());
 
 			const FCursorScreenGuard guard(sprite_bounds.min);
 
-			const auto mouse_pos = ImGui::GetMousePos();
-			const auto is_hovered = sprite_bounds.Contains({ mouse_pos.x, mouse_pos.y });
-
 			ImGui::InvisibleButton("selected_sprite", { sprite_bounds.Size().x, sprite_bounds.Size().y });
+			const auto is_hovered = ImGui::IsItemActive();
 
 			auto&& io = ImGui::GetIO();
 			if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 			{
 				auto&& delta = io.MouseDelta;
-				in_selected_sprite->position.x += delta.x / in_camera.zoom;
-				in_selected_sprite->position.y += delta.y / in_camera.zoom;
+				move_sprite(in_selected_sprite, { delta.x / in_camera.zoom, delta.y / in_camera.zoom });
+			}
+			if (ImGui::IsItemDeactivated()) 
+			{
+				snap_sprite(in_selected_sprite);
 			}
 
 			const ImU32 hatch_color = is_hovered ? IM_COL32(255, 165, 0, 128) : IM_COL32(255, 165, 0, 64); 
@@ -706,14 +763,13 @@ namespace
 			in_draw_list->AddRect({ sprite_bounds.min.x, sprite_bounds.min.y }, { sprite_bounds.max.x, sprite_bounds.max.y }, hatch_color, 0.0f, 0, 2.0f);
 		}
 
-		void draw_grid() const
+		void draw_grid(ImDrawList* draw_list, const FCamera& camera) const
 		{
+			draw_list->AddLine(camera.WorldToScreenImVec({ -camera.world_extends.x, 0.0f }), camera.WorldToScreenImVec({ camera.world_extends.x, 0.0f }), IM_COL32(255, 255, 255, 255));
+			draw_list->AddLine(camera.WorldToScreenImVec({ 0.0f, -camera.world_extends.y }), camera.WorldToScreenImVec({ 0.0f, camera.world_extends.y }), IM_COL32(255, 255, 255, 255));
+
 			if (editor->grid_cell_size.has_value())
 			{
-				auto* draw_list = ImGui::GetWindowDrawList();
-
-				auto&& camera = editor->camera;
-
 				const float cell_size = editor->grid_cell_size.value();
 				auto viewport_min = camera.viewport_bounds.min;
 				auto viewport_max = camera.viewport_bounds.max;
@@ -745,6 +801,49 @@ namespace
 			}
 		}
 
+		void draw_minimap(ImDrawList* draw_list, FCamera& camera) const
+		{
+			constexpr auto mini_map_coefficient_size = 0.1f; // 10% of viewport
+			auto&& viewport_bottom_right = camera.viewport_bounds.max;
+			auto&& mini_map_size = glm::vec2{ viewport_bottom_right.x, viewport_bottom_right.x } * mini_map_coefficient_size;
+			auto&& mini_map_pos = viewport_bottom_right - mini_map_size - mini_map_size * mini_map_coefficient_size;
+
+			editor->minimap_state.screen_bounds = { mini_map_pos, mini_map_pos + mini_map_size};
+
+			draw_minimap(draw_list, camera, editor->minimap_state, editor->mini_map_fade.GetAlpha());
+		}
+
+		void draw_canvas_tools(ImDrawList* draw_list, const FCamera& camera) const
+		{
+			const auto alpha = editor->mini_map_fade.GetAlpha();
+			if (std::abs(alpha) > 0.1f) {
+				constexpr auto tools_indent = 0.03f; // 3% of viewport
+				auto&& viewport_left_top = camera.viewport_bounds.min;
+				auto&& tools_pos = viewport_left_top + camera.viewport_bounds.Size() * tools_indent;
+
+				const FCursorScreenGuard cursor_screen_guard(tools_pos);
+				const FTransparencyGuard transparency_guard(alpha);
+
+				ImGui::SetNextItemAllowOverlap();
+				if (ImGui::SmallButton("Free"))
+				{
+					editor->free_snap();
+				}
+
+				for (std::uint8_t snap_index = 0; snap_index < editor->snaps.size(); ++snap_index)
+				{
+					ImGui::SetNextItemAllowOverlap();
+					ImGui::SameLine();
+					if (ImGui::SmallButton(std::to_string(editor->snaps[snap_index]).c_str()))
+					{
+						editor->set_snap(snap_index);
+					}
+				}
+			}
+
+
+		}
+
 		void draw() const override
 		{
 			if (editor != nullptr) [[likely]]
@@ -752,13 +851,7 @@ namespace
 				if (auto* draw_list = ImGui::GetWindowDrawList()) [[likely]]
 				{
 					auto&& camera = editor->camera;
-
-					auto&& left_top = camera.viewport_bounds.min;
-
-					draw_grid();
-
-					draw_list->AddLine(camera.WorldToScreenImVec({-camera.world_extends.x, 0.0f}), camera.WorldToScreenImVec({ camera.world_extends.x, 0.0f }), IM_COL32(255, 255, 255, 255));
-					draw_list->AddLine(camera.WorldToScreenImVec({0.0f, -camera.world_extends.y }), camera.WorldToScreenImVec({ 0.0f, camera.world_extends.y }), IM_COL32(255, 255, 255, 255));
+					draw_grid(draw_list, camera);
 
 					for (auto&& sprite : editor->sprites())
 					{
@@ -773,15 +866,10 @@ namespace
 						draw_selected_sprite(draw_list, selected_sprite, camera);
 					}
 
-					constexpr auto mini_map_coefficient_size = 0.1f; // 10% of viewport
-					auto&& viewport_bottom_right = camera.viewport_bounds.max;
-					auto&& mini_map_size = glm::vec2{ viewport_bottom_right.x, viewport_bottom_right.x } * mini_map_coefficient_size;
-					auto&& mini_map_pos = viewport_bottom_right - mini_map_size - mini_map_size * mini_map_coefficient_size;
+					draw_canvas_tools(draw_list, camera);
+					draw_minimap(draw_list, camera);
 
-					editor->minimap_state.screen_bounds = { mini_map_pos, mini_map_pos + mini_map_size};
-
-					draw_minimap(draw_list, camera, editor->minimap_state, editor->mini_map_fade.GetAlpha());
-
+					auto&& left_top = camera.viewport_bounds.min;
 					draw_list->AddText({ left_top.x, left_top.y }, IM_COL32(255, 255, 255, 255), std::format("zoom: {}", camera.zoom).c_str());
 				}
 			}

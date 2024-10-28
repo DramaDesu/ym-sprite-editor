@@ -305,6 +305,7 @@ struct FSpriteEditorApplication
 
 						sprite_editor = created_sprite_editor;
 						sprite_editor->set_grid_cell_size(128);
+						sprite_editor->setup_snap({1, 128});
 					}
 					main_loop();
 				}
