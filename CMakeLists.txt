@@ -10,15 +10,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(SDL2 CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
-find_package(Stb REQUIRED)
 
 add_subdirectory(lib)
 
 option(BUILD_EXAMPLE "Build example" ON)
 
-add_executable(ym-sprite-editor "ym-sprite-editor.cpp")
-
 if (BUILD_EXAMPLE)
+    find_package(Stb REQUIRED)
+
+    add_executable(ym-sprite-editor "ym-sprite-editor.cpp")
+
     target_include_directories(ym-sprite-editor PRIVATE ${Stb_INCLUDE_DIR})
 
     target_link_libraries(ym-sprite-editor
