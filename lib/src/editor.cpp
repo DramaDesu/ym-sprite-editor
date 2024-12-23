@@ -204,8 +204,14 @@ namespace
 
 			const glm::vec2 half_viewport_size = viewport_bounds.Size() / 2.0f / zoom;
 
-			out_position.x = std::clamp(in_position.x, -world_extends.x + half_viewport_size.x, world_extends.x - half_viewport_size.x);
-			out_position.y = std::clamp(in_position.y, -world_extends.y + half_viewport_size.y, world_extends.y - half_viewport_size.y);
+			auto&& min_bounds = -world_extends + half_viewport_size;
+			auto&& max_bounds = world_extends - half_viewport_size;
+
+			min_bounds = glm::min(min_bounds, max_bounds);
+			max_bounds = glm::max(min_bounds, max_bounds);
+
+			out_position.x = std::clamp(in_position.x, min_bounds.x, max_bounds.x);
+			out_position.y = std::clamp(in_position.y, min_bounds.y, max_bounds.y);
 
 			return out_position;
 		}
