@@ -132,9 +132,8 @@ namespace ym::ui {
 			ImGui::PushItemWidth(Space.x * 0.5f);
 			draw_sprite_editor(sprite_editor);
 			ImGui::PopItemWidth();
-
-			ImGui::End();
 		}
+		ImGui::End();
 	}
 }
 
@@ -227,28 +226,23 @@ struct FSpriteEditorApplication
 
 		editor->register_sprite_details_renderer<ym::ui::TextureSprite>([editor](auto& in_sprite)
 		{
-			if (ImGui::BeginChild("sprite_details"))
+			ImGui::SeparatorText("texture sprite");
+
+			auto&& world_bounds = editor->world_bounds();
+
+			auto&& texture_sprite = std::static_pointer_cast<ym::ui::TextureSprite>(in_sprite);
+
+			float position[2] = { in_sprite->position.x, in_sprite->position.y };
+			if (ImGui::SliderFloat2("location", position, -world_bounds.x, world_bounds.x))
 			{
-				ImGui::TextDisabled("texture sprite");
-
-				auto&& world_bounds= editor->world_bounds();
-
-				auto&& texture_sprite = std::static_pointer_cast<ym::ui::TextureSprite>(in_sprite);
-
-				float position[2] = { in_sprite->position.x, in_sprite->position.y };
-				if (ImGui::SliderFloat2("location", position, -world_bounds.x, world_bounds.x))
-				{
-					in_sprite->position.x = position[0];
-					in_sprite->position.y = position[1];
-				}
-
-				ImGui::LabelText("size", "%fx%f", in_sprite->get_size().x, in_sprite->get_size().y);
-				ImGui::LabelText("rotation", "%f", texture_sprite->rotation);
-				ImGui::LabelText("rotation_speed", "%f", texture_sprite->rotation_speed);
-				ImGui::LabelText("scale", "%f", texture_sprite->scale);
-
-				ImGui::EndChild();
+				in_sprite->position.x = position[0];
+				in_sprite->position.y = position[1];
 			}
+
+			ImGui::LabelText("size", "%fx%f", in_sprite->get_size().x, in_sprite->get_size().y);
+			ImGui::LabelText("rotation", "%f", texture_sprite->rotation);
+			ImGui::LabelText("rotation_speed", "%f", texture_sprite->rotation_speed);
+			ImGui::LabelText("scale", "%f", texture_sprite->scale);
 		});
 	}
 

@@ -659,7 +659,7 @@ namespace
 
 			~FCursorScreenGuard()
 			{
-				ImGui::SetCursorScreenPos(cached_cursor);
+				// ImGui::SetCursorScreenPos(cached_cursor);
 			}
 		private:
 			ImVec2 cached_cursor = ImGui::GetCursorScreenPos();
@@ -727,9 +727,10 @@ namespace
 			if (editor->snap.has_value())
 			{
 				const auto grid_size = static_cast<float>(editor->snaps[editor->snap.value()]);
+				const auto sprite_size = in_selected_sprite->get_size();
 
-				in_selected_sprite->position.x = std::round(in_selected_sprite->position.x / grid_size) * grid_size;
-				in_selected_sprite->position.y = std::round(in_selected_sprite->position.y / grid_size) * grid_size;
+				in_selected_sprite->position.x = std::floor((in_selected_sprite->position.x - sprite_size.x / 2.0f) / grid_size) * grid_size + sprite_size.x / 2.0f;
+				in_selected_sprite->position.y = std::floor((in_selected_sprite->position.y - sprite_size.y / 2.0f) / grid_size) * grid_size + sprite_size.y / 2.0f;
 			}
 		}
 
@@ -739,6 +740,7 @@ namespace
 
 			const FCursorScreenGuard guard(sprite_bounds.min);
 
+			ImGui::SetNextItemAllowOverlap();
 			ImGui::InvisibleButton("selected_sprite", { sprite_bounds.Size().x, sprite_bounds.Size().y });
 			const auto is_hovered = ImGui::IsItemActive();
 
@@ -826,6 +828,7 @@ namespace
 				constexpr auto tools_indent = 0.03f; // 3% of viewport
 				auto&& viewport_left_top = camera.viewport_bounds.min;
 				auto&& tools_pos = viewport_left_top + camera.viewport_bounds.Size() * tools_indent;
+				auto&& tools_indent_size = camera.viewport_bounds.Size() * tools_indent;
 
 				const FCursorScreenGuard cursor_screen_guard(tools_pos);
 				const FTransparencyGuard transparency_guard(alpha);
@@ -895,113 +898,99 @@ namespace
 		return nullptr;
 	}
 
-	struct item_width_guard
-	{
-		item_width_guard() : width_(ImGui::CalcItemWidth())
-		{
-			if (width_ > 0.0f)
-			{
-				ImGui::PopItemWidth();
-			}
-		}
-
-		~item_width_guard()
-		{
-			if (width_ > 0.0f)
-			{
-				ImGui::PushItemWidth(width_);
-			}
-		}
-
-	private:
-		const float width_;
-	};
-
 	void draw_sprite_editor_list(const std::shared_ptr<ym::sprite_editor::ISpriteEditor>& in_sprite_editor)
 	{
-		const item_width_guard width_guard;
-
 		using namespace std::literals;
 		constexpr auto sprite_name = "sprite"sv;
 		constexpr auto sprites_in_list = 0x10;
 
 		const ImVec2 list_size = {ImGui::GetFontSize() * sprite_name.size() * 2.0f, ImGui::GetFontSize() * sprites_in_list * 2.0f };
 
-		ImGui::SetNextItemWidth(list_size.x);
-		ImGui::TextDisabled("Sprites");
-
-		if (ImGui::BeginListBox("##sprites_list", list_size))
+		if (ImGui::BeginChild("##sprites_list_", {list_size.x, 0.0f}))
 		{
-			auto sprite_id = 0;
-			for (auto&& sprite : in_sprite_editor->sprites())
+			ImGui::SetNextItemWidth(list_size.x);
+			ImGui::SeparatorText("Sprites");
+
+			if (ImGui::BeginListBox("##sprites_list", list_size))
 			{
-				const auto is_selected = !in_sprite_editor->selected_sprite().expired() && in_sprite_editor->selected_sprite().lock() == sprite;
-
-				ImGui::PushID(sprite_id++);
-				ImGui::SetNextItemAllowOverlap();
-				if (ImGui::Selectable("sprite", is_selected, ImGuiSelectableFlags_AllowDoubleClick))
+				auto sprite_id = 0;
+				for (auto&& sprite : in_sprite_editor->sprites())
 				{
-					in_sprite_editor->select_sprite(sprite);
-					if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+					const auto is_selected = !in_sprite_editor->selected_sprite().expired() && in_sprite_editor->selected_sprite().lock() == sprite;
+
+					ImGui::PushID(sprite_id++);
+					ImGui::SetNextItemAllowOverlap();
+					if (ImGui::Selectable("sprite", is_selected, ImGuiSelectableFlags_AllowDoubleClick))
 					{
-						in_sprite_editor->focus_camera_on_sprite();
+						in_sprite_editor->select_sprite(sprite);
+						if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+						{
+							in_sprite_editor->focus_camera_on_sprite();
+						}
 					}
+
+					ImGui::BeginDisabled(!is_selected);
+
+					ImGui::SameLine(list_size.x - ImGui::GetFontSize() * 1.5f);
+					if (ImGui::SmallButton("x"))
+					{
+						in_sprite_editor->remove_sprite(sprite);
+					}
+
+					ImGui::EndDisabled();
+
+					if (is_selected)
+					{
+						ImGui::SetItemDefaultFocus();
+					}
+
+					ImGui::PopID();
 				}
 
-				ImGui::BeginDisabled(!is_selected);
-
-				ImGui::SameLine(list_size.x - ImGui::GetFontSize() * 1.5f);
-				if (ImGui::SmallButton("x"))
-				{
-					in_sprite_editor->remove_sprite(sprite);
-				}
-
-				ImGui::EndDisabled();
-
-				if (is_selected)
-				{
-					ImGui::SetItemDefaultFocus();
-				}
-
-				ImGui::PopID();
+				ImGui::EndListBox();
 			}
-
-			ImGui::EndListBox();
 		}
-		ImGui::SameLine();
+		ImGui::EndChild();
 	}
 
 	void draw_sprite_editor_canvas(const std::shared_ptr<ym::sprite_editor::ISpriteEditor>& in_sprite_editor)
 	{
 		auto&& width = ImGui::CalcItemWidth();
-		auto&& position = ImGui::GetCursorScreenPos();
-
 		const ImVec2 viewport_size = { width, width };
-		const glm::vec2 viewport_top_left = { position.x, position.y };
-		const glm::vec2 viewport_bottom_right = { position.x + width, position.y + width };
 
-		ImGui::SetNextItemAllowOverlap();
-		ImGui::InvisibleButton("sprite_editor", viewport_size);
-
-		const FDeferredScreenCursor deferred_screen({ position.x + ImGui::GetItemRectSize().x + ImGui::GetStyle().IndentSpacing, position.y });
-
-		in_sprite_editor->update(viewport_top_left, viewport_bottom_right);
-
-		if (auto* draw_list = ImGui::GetWindowDrawList())
+		if (ImGui::BeginChild("##sprites_canvas_", viewport_size))
 		{
-			ImGui::PushClipRect({ viewport_top_left.x, viewport_top_left.y }, { viewport_bottom_right.x, viewport_bottom_right.y }, true);
+			auto&& position = ImGui::GetCursorScreenPos();
 
-			in_sprite_editor->draw();
+			const glm::vec2 viewport_top_left = { position.x, position.y };
+			const glm::vec2 viewport_bottom_right = { position.x + width, position.y + width };
 
-			draw_list->AddQuad(position, { position.x + width, position.y }, { position.x + width, position.y + width }, { position.x, position.y + width }, IM_COL32(128, 128, 128, 255), 3.0f);
+			ImGui::SetNextItemAllowOverlap();
+			ImGui::InvisibleButton("sprite_editor", viewport_size);
 
-			ImGui::PopClipRect();
+			in_sprite_editor->update(viewport_top_left, viewport_bottom_right);
+
+			if (auto* draw_list = ImGui::GetWindowDrawList())
+			{
+				ImGui::PushClipRect({ viewport_top_left.x, viewport_top_left.y }, { viewport_bottom_right.x, viewport_bottom_right.y }, true);
+
+				in_sprite_editor->draw();
+
+				draw_list->AddQuad(position, { position.x + width, position.y }, { position.x + width, position.y + width }, { position.x, position.y + width }, IM_COL32(128, 128, 128, 255), 3.0f);
+
+				ImGui::PopClipRect();
+			}
 		}
+		ImGui::EndChild();
 	}
 
 	void draw_sprite_details(const std::shared_ptr<ym::sprite_editor::ISpriteEditor>& in_sprite_editor)
 	{
-		in_sprite_editor->draw_sprite_details();
+		if (ImGui::BeginChild("##sprite_details_"))
+		{
+			in_sprite_editor->draw_sprite_details();
+		}
+		ImGui::EndChild();
 	}
 }
 
@@ -1043,7 +1032,11 @@ namespace ym::sprite_editor
 		if (in_sprite_editor)
 		{
 			draw_sprite_editor_list(in_sprite_editor);
+
+			ImGui::SameLine();
 			draw_sprite_editor_canvas(in_sprite_editor);
+
+			ImGui::SameLine();
 			draw_sprite_details(in_sprite_editor);
 		}
 	}
