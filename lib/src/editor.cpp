@@ -216,6 +216,10 @@ namespace
 			return out_position;
 		}
 
+		auto ClampScreenSize(const glm::vec2& in_screen_size) const -> glm::vec2 {
+			return glm::min(in_screen_size, viewport_bounds.Size());
+		}
+
 		glm::vec2 position{};
 		glm::vec2 world_extends{};
 		float zoom{ 1.0f };
@@ -716,7 +720,7 @@ namespace
 			editor = static_cast<SegaSpriteEditor*>(in_source);
 		}
 
-		void move_sprite(const std::shared_ptr<ym::sprite_editor::BaseSprite>& in_selected_sprite, const ImVec2& in_delta) const
+		static void move_sprite(const std::shared_ptr<ym::sprite_editor::BaseSprite>& in_selected_sprite, const ImVec2& in_delta)
 		{
 			in_selected_sprite->position.x += in_delta.x;
 			in_selected_sprite->position.y += in_delta.y;
@@ -737,11 +741,12 @@ namespace
 		void draw_selected_sprite(ImDrawList* in_draw_list, const std::shared_ptr<ym::sprite_editor::BaseSprite>& in_selected_sprite, const FCamera& in_camera) const
 		{
 			const auto sprite_bounds = in_camera.WorldToScreen(in_selected_sprite->position, in_selected_sprite->get_size());
+			const auto sprite_bounds_size = in_camera.ClampScreenSize(sprite_bounds.Size());
 
 			const FCursorScreenGuard guard(sprite_bounds.min);
 
 			ImGui::SetNextItemAllowOverlap();
-			ImGui::InvisibleButton("selected_sprite", { sprite_bounds.Size().x, sprite_bounds.Size().y });
+			ImGui::InvisibleButton("selected_sprite", { sprite_bounds_size.x, sprite_bounds_size.y });
 			const auto is_hovered = ImGui::IsItemActive();
 
 			auto&& io = ImGui::GetIO();
